@@ -1,16 +1,15 @@
 // server.js
 import express, { json } from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import multer from 'multer'; // Import multer for handling file uploads
 import { v4 as uuidv4 } from 'uuid'; // Import uuid to generate unique file names
 import { supabaseClient } from "./db/params.js"; // Import both clients
 // import { sendEmail } from "./notif.js";
 import { Resend } from 'resend';
+import { Server } from 'socket.io';
+import http from 'http';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-
-dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -593,8 +592,159 @@ app.post('/api/furniture/sold/:id', authenticateUser, async (req, res) => {
     }
 });
 
+// -------------------- Marketplace Messages Routes --------------------
+
+// Get messages by item ID
+app.get('/api/messages/item/:itemId', async (req, res) => {
+    const itemId = req.params.itemId;
+    
+    try {
+        const { data, error } = await supabase
+            .from('marketplace_messages')
+            .select('*')
+            .eq('item_id', itemId)
+            .order('created_at', { ascending: true });
+
+        if (error) {
+            console.error('Error fetching messages:', error);
+            return res.status(500).json({ error: 'Failed to fetch conversation messages' });
+        }
+
+        res.json(data || []);
+    } catch (err) {
+        console.error('Error fetching messages:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Get messages for a specific user (conversations they're part of)
+app.get('/api/messages/user/:userId', async (req, res) => {
+    const userId = req.params.userId;
+    
+    try {
+        const { data, error } = await supabase
+            .from('marketplace_messages')
+            .select('*')
+            .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching user messages:', error);
+            return res.status(500).json({ error: 'Failed to fetch messages' });
+        }
+
+        res.json(data || []);
+    } catch (err) {
+        console.error('Error fetching user messages:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Send a new message
+app.post('/api/messages', async (req, res) => {
+    const message = req.body;
+    
+    try {
+        const { data, error } = await supabase
+            .from('marketplace_messages')
+            .insert([message])
+            .select();
+
+        if (error) {
+            console.error('Error sending message:', error);
+            return res.status(500).json({ error: 'Failed to send message' });
+        }
+
+        res.status(201).json(data ? data[0] : null);
+    } catch (err) {
+        console.error('Error sending message:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Mark messages as read
+app.put('/api/messages/read', async (req, res) => {
+    const { itemId, userId } = req.body;
+    
+    try {
+        const { data, error } = await supabase
+            .from('marketplace_messages')
+            .update({ read: true })
+            .eq('item_id', itemId)
+            .eq('receiver_id', userId)
+            .eq('read', false);
+
+        if (error) {
+            console.error('Error marking messages as read:', error);
+            return res.status(500).json({ error: 'Failed to mark messages as read' });
+        }
+
+        res.json(data || []);
+    } catch (err) {
+        console.error('Error marking messages as read:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Setup WebSocket connection for real-time messages
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "*", // Update with your frontend URL in production
+        methods: ["GET", "POST"]
+    }
+});
+
+// Setup Supabase realtime subscription for messages
+const setupRealtimeMessaging = async () => {
+    try {
+        // Subscribe to all message insertions
+        const channel = supabase
+            .channel('public:marketplace_messages')
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'marketplace_messages'
+            }, (payload) => {
+                // Broadcast the new message to connected clients
+                const message = payload.new;
+                
+                // Emit to specific item room
+                io.to(`item_${message.item_id}`).emit('new_message', message);
+                
+                // Emit to specific user room
+                io.to(`user_${message.receiver_id}`).emit('new_message', message);
+            })
+            .subscribe();
+            
+        console.log('Realtime messaging setup complete');
+    } catch (error) {
+        console.error('Error setting up realtime messaging:', error);
+    }
+};
+
+setupRealtimeMessaging();
+
+// Socket.io connection handling
+io.on('connection', (socket) => {
+    console.log('A user connected');
+    
+    // Join item-specific room
+    socket.on('join_item', (itemId) => {
+        socket.join(`item_${itemId}`);
+    });
+    
+    // Join user-specific room
+    socket.on('join_user', (userId) => {
+        socket.join(`user_${userId}`);
+    });
+    
+    socket.on('disconnect', () => {
+        console.log('A user disconnected');
+    });
+});
 
 // Start the server
-app.listen(port, () => {
+server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
 });
