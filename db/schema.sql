@@ -20,6 +20,7 @@ CREATE TABLE city_base_charges (
     city_name VARCHAR(100) NOT NULL UNIQUE,
     normal DECIMAL(8,2) NOT NULL,
     city_day DECIMAL(8,2) NOT NULL,
+    day_of_week INTEGER NOT NULL CHECK (day_of_week >= 1 AND day_of_week <= 7), -- 1=Monday, 7=Sunday
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -146,17 +147,33 @@ INSERT INTO furniture_items (name, category, points) VALUES
 ('Office Chair', 'Office', 2.0),
 ('Filing Cabinet', 'Office', 2.5);
 
--- Insert sample city base charges
-INSERT INTO city_base_charges (city_name, normal, city_day) VALUES
-('Amsterdam', 120.00, 150.00),
-('Rotterdam', 110.00, 140.00),
-('The Hague', 115.00, 145.00),
-('Utrecht', 110.00, 140.00),
-('Eindhoven', 100.00, 130.00),
-('Tilburg', 95.00, 125.00),
-('Groningen', 100.00, 130.00),
-('Almere', 105.00, 135.00),
-('Breda', 100.00, 130.00),
+-- Insert sample city base charges with day of week (1=Monday, 2=Tuesday, ..., 7=Sunday)
+INSERT INTO city_base_charges (city_name, normal, city_day, day_of_week) VALUES
+('Amsterdam', 119.00, 39.00, 1),
+('Utrecht', 119.00, 35.00, 1),
+('Almere', 129.00, 44.00, 1),
+('Haarlem', 119.00, 44.00, 1),
+('Zaanstad', 119.00, 39.00, 1),
+('Amersfoort', 129.00, 49.00, 1),
+('s-Hertogenbosch', 89.00, 39.00, 1),
+('Hoofddorp', 119.00, 39.00, 1),
+('Rotterdam', 119.00, 35.00, 2),
+('The Hague', 119.00, 35.00, 2),
+('Breda', 79.00, 35.00, 2),
+('Leiden', 129.00, 39.00, 2),
+('Dordrecht', 109.00, 35.00, 2),
+('Zoetermeer', 119.00, 35.00, 2),
+('Delft', 119.00, 35.00, 2),
+('Eindhoven', 89.00, 34.00, 3),
+('Maastricht', 149.00, 34.00, 3),
+('Tilburg', 29.00, 29.00, 4),
+('Groningen', 219.00, 69.00, 5),
+('Nijmegen', 149.00, 59.00, 6),
+('Enschede', 159.00, 69.00, 6),
+('Arnhem', 159.00, 59.00, 6),
+('Apeldoorn', 159.00, 49.00, 6),
+('Deventer', 159.00, 99.00, 6),
+('Zwolle', 179.00, 119.00, 7),
 ('Nijmegen', 105.00, 135.00);
 
 -- Insert sample city day data

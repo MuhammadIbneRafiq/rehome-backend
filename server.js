@@ -889,7 +889,8 @@ const furnitureItemSchema = Joi.object({
 const cityBaseChargeSchema = Joi.object({
     cityName: Joi.string().required().max(100),
     normal: Joi.number().positive().required(),
-    cityDay: Joi.number().positive().required()
+    cityDay: Joi.number().positive().required(),
+    dayOfWeek: Joi.number().integer().min(1).max(7).required()
 });
 
 const cityDayDataSchema = Joi.object({
@@ -1084,8 +1085,8 @@ app.post("/api/city-base-charges", authenticateAdmin, auditLog, async (req, res)
             return res.status(400).json({ success: false, error: validationError.details[0].message });
         }
 
-        const { cityName, normal, cityDay } = req.body;
-        const insertData = { city_name: cityName, normal, city_day: cityDay };
+        const { cityName, normal, cityDay, dayOfWeek } = req.body;
+        const insertData = { city_name: cityName, normal, city_day: cityDay, day_of_week: dayOfWeek };
 
         const { data, error } = await supabaseClient
             .from('city_base_charges')
@@ -1107,11 +1108,12 @@ app.post("/api/city-base-charges", authenticateAdmin, auditLog, async (req, res)
 // Update city base charge
 app.put("/api/city-base-charges/:cityName", authenticateAdmin, auditLog, async (req, res) => {
     try {
-        const { normal, cityDay } = req.body;
+        const { normal, cityDay, dayOfWeek } = req.body;
         const updateData = {};
         
         if (normal !== undefined) updateData.normal = normal;
         if (cityDay !== undefined) updateData.city_day = cityDay;
+        if (dayOfWeek !== undefined) updateData.day_of_week = dayOfWeek;
 
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({ success: false, error: "No valid fields to update" });
