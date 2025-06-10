@@ -201,7 +201,6 @@ app.get('/api/furniture', async (req, res) => {
         const { data, error } = await supabase
             .from('furniture')
             .select('*')
-            .order('created_at', { ascending: false }); // Order by creation date, newest first
 
         if (error) {
             return res.status(500).json(handleSupabaseError(error));
