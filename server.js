@@ -160,9 +160,12 @@ app.post("/auth/login", async (req, res) => {
         }
 
     } catch (error) {
-        if (error.message) {
-            return res.status(500).json({ error: error.message });
+        console.error("Login error:", error);
+        // Return appropriate status code based on error type
+        if (error.message && error.message.includes('Invalid login credentials')) {
+            return res.status(401).json({ error: error.message });
         }
+        return res.status(500).json({ error: error.message || "Internal server error" });
     }
 });
 
