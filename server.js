@@ -815,7 +815,16 @@ const generateToken = (user) => {
     );
 };
 
-// Authentication middleware
+// List of admin email addresses
+const ADMIN_EMAILS = [
+    'muhammadibnerafiq@gmail.com',
+    'testnewuser12345@gmail.com', // Your test account
+    'egzmanagement@gmail.com',
+    'samuel.stroehle8@gmail.com',
+    'info@rehomebv.com'
+];
+
+// Simplified admin authentication using regular Supabase auth + email whitelist
 const authenticateAdmin = async (req, res, next) => {
     const authHeader = req.headers.authorization || "";
     const token = authHeader.split(" ")[1];
@@ -825,21 +834,19 @@ const authenticateAdmin = async (req, res, next) => {
     }
 
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
-        // Verify user exists in database
-        const { data: user, error } = await supabaseClient
-            .from('admin_users')
-            .select('*')
-            .eq('id', decoded.id)
-            .eq('is_active', true)
-            .single();
+        // Use regular Supabase auth to verify the token
+        const { data: user, error } = await supabaseClient.auth.getUser(token);
 
-        if (error || !user) {
+        if (error || !user || !user.user) {
             return res.status(403).json({ success: false, error: "Invalid token or user not found" });
         }
 
-        req.user = user;
+        // Check if user email is in admin list
+        if (!ADMIN_EMAILS.includes(user.user.email)) {
+            return res.status(403).json({ success: false, error: "Admin access required" });
+        }
+
+        req.user = user.user;
         next();
     } catch (error) {
         console.error("Authentication Error:", error);
@@ -919,57 +926,8 @@ app.get("/", (req, res) => {
 
 // ==================== AUTHENTICATION ENDPOINTS ====================
 
-// Admin login
-app.post("/api/admin/login", async (req, res) => {
-    try {
-        const { error: validationError } = adminLoginSchema.validate(req.body);
-        if (validationError) {
-            return res.status(400).json({ success: false, error: validationError.details[0].message });
-        }
-
-        const { email, password } = req.body;
-
-        const { data: user, error } = await supabaseClient
-            .from('admin_users')
-            .select('*')
-            .eq('email', email)
-            .eq('is_active', true)
-            .single();
-
-        if (error || !user) {
-            return res.status(401).json({ success: false, error: "Invalid credentials" });
-        }
-
-        const isPasswordValid = await bcrypt.compare(password, user.password_hash);
-        if (!isPasswordValid) {
-            return res.status(401).json({ success: false, error: "Invalid credentials" });
-        }
-
-        const token = generateToken(user);
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
-        res.json({
-            success: true,
-            data: {
-                user: {
-                    id: user.id,
-                    email: user.email,
-                    role: user.role
-                },
-                token,
-                expiresAt
-            }
-        });
-    } catch (error) {
-        console.error("Login error:", error);
-        res.status(500).json({ success: false, error: "Internal server error" });
-    }
-});
-
-// Admin logout
-app.post("/api/admin/logout", authenticateAdmin, (req, res) => {
-    res.json({ success: true, message: "Logged out successfully" });
-});
+// Note: Admin authentication now uses regular Supabase auth + email whitelist
+// No separate admin login/logout endpoints needed
 
 // ==================== FURNITURE ITEMS ENDPOINTS ====================
 
