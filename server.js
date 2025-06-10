@@ -198,18 +198,41 @@ const handleSupabaseError = (error) => {
 // 1. Get all furniture items
 app.get('/api/furniture', async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from('furniture')
-            .select('*')
-
-        if (error) {
-            return res.status(500).json(handleSupabaseError(error));
+        console.log('Furniture endpoint called');
+        console.log('supabaseClient available:', !!supabaseClient);
+        console.log('supabase available:', !!supabase);
+        
+        if (!supabase) {
+            console.error('Supabase client is not initialized!');
+            return res.status(500).json({ error: 'Supabase client not initialized' });
         }
 
+        console.log('Fetching furniture from Supabase...');
+        const { data, error } = await supabase
+            .from('furniture')
+            .select('*');
+
+        console.log('Supabase response - Data:', data);
+        console.log('Supabase response - Error:', error);
+
+        if (error) {
+            console.error("Supabase error details:", JSON.stringify(error, null, 2));
+            return res.status(500).json({ 
+                error: 'Supabase error',
+                details: error.message || error
+            });
+        }
+
+        console.log('Sending successful response with data:', data);
         res.json(data);
     } catch (err) {
-        console.error('Error fetching furniture:', err);
-        res.status(500).json({ error: 'Internal Server Error' });
+        console.error('Caught exception in furniture endpoint:', err);
+        console.error('Error stack:', err.stack);
+        res.status(500).json({ 
+            error: 'Internal Server Error',
+            message: err.message,
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
     }
 });
 
