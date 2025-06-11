@@ -51,6 +51,13 @@ import { createMollieClient } from '@mollie/api-client';
 
 app.post("/mollie", async (req, res) => {
 const amount = req.body.amount; // Get the amount from the request
+  
+  // Check if Mollie API key is available
+  if (!process.env.MOLLIE_API_KEY) {
+    console.error("Mollie API key not configured");
+    return res.status(500).json({ error: "Payment service not configured" });
+  }
+  
   const mollieClient = createMollieClient({ apiKey: process.env.MOLLIE_API_KEY });
 
   try {
@@ -309,15 +316,11 @@ app.get('/api/furniture', async (req, res) => {
 app.post('/api/item-moving-requests', async (req, res) => {
     try {
       const {
-        email,
         pickupType,
         furnitureItems,
         customItem,
         floorPickup,
         floorDropoff,
-        firstName,
-        lastName,
-        phone,
         contactInfo,
         estimatedPrice,
         selectedDate,
@@ -329,36 +332,39 @@ app.post('/api/item-moving-requests', async (req, res) => {
         distanceCost,
         extraHelperCost
       } = req.body;
-      console.log('the whole req.body', req.body)
-    //   console.log(email, 'here is the email')
+      
+      console.log('the whole req.body', req.body);
+      
+      // Validate required fields
+      if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
+        return res.status(400).json({ error: 'Contact information is required' });
+      }
 
       const { data, error } = await supabase
         .from('item_moving')
         .insert([{
-          email: contactInfo['email'],
-          pickuptype: pickupType,
-          furnitureitems: furnitureItems,
-          customitem: customItem,
-          floorpickup: parseInt(floorPickup, 10),
-          floordropoff: parseInt(floorDropoff, 10),
-          firstname: contactInfo['firstName'],
-          lastname: contactInfo['lastName'],
-          phone: contactInfo['phone'],
-          estimatedprice: parseFloat(estimatedPrice),
-          selecteddate: selectedDate,
-          isdateflexible: isDateFlexible, // assuming this is a boolean from the client
-          baseprice: parseFloat(basePrice),
-          itempoints: parseInt(itemPoints, 10),
-          carryingcost: parseFloat(carryingCost),
-          disassemblycost: parseFloat(disassemblyCost),
-          distancecost: parseFloat(distanceCost),
-          extrahelpercost: parseFloat(extraHelperCost),
-        //   isstudent: false,    // default value; adjust if needed
-        //   studentidurl: null   // default value; adjust if needed
+          email: contactInfo.email,
+          pickuptype: pickupType || null,
+          furnitureitems: furnitureItems || null,
+          customitem: customItem || null,
+          floorpickup: floorPickup ? parseInt(floorPickup, 10) : 0,
+          floordropoff: floorDropoff ? parseInt(floorDropoff, 10) : 0,
+          firstname: contactInfo.firstName,
+          lastname: contactInfo.lastName,
+          phone: contactInfo.phone || null,
+          estimatedprice: estimatedPrice ? parseFloat(estimatedPrice) : 0,
+          selecteddate: selectedDate || null,
+          isdateflexible: Boolean(isDateFlexible),
+          baseprice: basePrice ? parseFloat(basePrice) : null,
+          itempoints: itemPoints ? parseInt(itemPoints, 10) : null,
+          carryingcost: carryingCost ? parseFloat(carryingCost) : null,
+          disassemblycost: disassemblyCost ? parseFloat(disassemblyCost) : null,
+          distancecost: distanceCost ? parseFloat(distanceCost) : null,
+          extrahelpercost: extraHelperCost ? parseFloat(extraHelperCost) : null,
         }])
         .select();
 
-        console.log('data to sb', data)
+        console.log('data to sb', data);
   
       if (error) throw error;
       
@@ -389,36 +395,39 @@ app.post('/api/item-moving-requests', async (req, res) => {
         distanceCost,
         extraHelperCost
     } = req.body;
-    console.log('the whole req.body', req.body)
-    //   console.log(email, 'here is the email')
+    
+    console.log('the whole req.body', req.body);
+    
+    // Validate required fields
+    if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
+      return res.status(400).json({ error: 'Contact information is required' });
+    }
 
     const { data, error } = await supabase
         .from('house_moving')
         .insert([{
-        email: contactInfo['email'],
-        pickuptype: pickupType,
-        furnitureitems: furnitureItems,
-        customitem: customItem,
-        floorpickup: parseInt(floorPickup, 10),
-        floordropoff: parseInt(floorDropoff, 10),
-        firstname: contactInfo['firstName'],
-        lastname: contactInfo['lastName'],
-        phone: contactInfo['phone'],
-        estimatedprice: parseFloat(estimatedPrice),
-        selecteddate: selectedDate,
-        isdateflexible: isDateFlexible, // assuming this is a boolean from the client
-        baseprice: parseFloat(basePrice),
-        itempoints: parseInt(itemPoints, 10),
-        carryingcost: parseFloat(carryingCost),
-        disassemblycost: parseFloat(disassemblyCost),
-        distancecost: parseFloat(distanceCost),
-        extrahelpercost: parseFloat(extraHelperCost),
-        //   isstudent: false,    // default value; adjust if needed
-        //   studentidurl: null   // default value; adjust if needed
+        email: contactInfo.email,
+        pickuptype: pickupType || null,
+        furnitureitems: furnitureItems || null,
+        customitem: customItem || null,
+        floorpickup: floorPickup ? parseInt(floorPickup, 10) : 0,
+        floordropoff: floorDropoff ? parseInt(floorDropoff, 10) : 0,
+        firstname: contactInfo.firstName,
+        lastname: contactInfo.lastName,
+        phone: contactInfo.phone || null,
+        estimatedprice: estimatedPrice ? parseFloat(estimatedPrice) : 0,
+        selecteddate: selectedDate || null,
+        isdateflexible: Boolean(isDateFlexible),
+        baseprice: basePrice ? parseFloat(basePrice) : null,
+        itempoints: itemPoints ? parseInt(itemPoints, 10) : null,
+        carryingcost: carryingCost ? parseFloat(carryingCost) : null,
+        disassemblycost: disassemblyCost ? parseFloat(disassemblyCost) : null,
+        distancecost: distanceCost ? parseFloat(distanceCost) : null,
+        extrahelpercost: extraHelperCost ? parseFloat(extraHelperCost) : null,
         }])
         .select();
 
-        console.log('data to sb', data)
+        console.log('data to sb', data);
 
     if (error) throw error;
 
