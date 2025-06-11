@@ -208,6 +208,16 @@ const handleSupabaseError = (error) => {
 
 // -------------------- Express Routes --------------------
 
+// Test endpoint to verify backend is working
+app.get('/api/test', (req, res) => {
+    res.json({ 
+        success: true, 
+        message: 'Backend is working!', 
+        timestamp: new Date().toISOString(),
+        supabaseAvailable: !!supabase
+    });
+});
+
 // 1. Get all furniture items
 app.get('/api/furniture', async (req, res) => {
     try {
@@ -230,6 +240,51 @@ app.get('/api/furniture', async (req, res) => {
 
         if (error) {
             console.error("Supabase error details:", JSON.stringify(error, null, 2));
+            
+            // If table doesn't exist or permission issue, return mock data for development
+            if (error.code === 'PGRST116' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
+                console.log('Table not found, returning mock data for development');
+                const mockData = [
+                    {
+                        id: 1,
+                        name: "Modern Sofa",
+                        description: "Comfortable 3-seater sofa in excellent condition",
+                        image_url: ["https://images.unsplash.com/photo-1555041469-a586c61ea9bc?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"],
+                        price: 299,
+                        created_at: new Date().toISOString(),
+                        seller_email: "seller@example.com",
+                        city_name: "Amsterdam",
+                        sold: false,
+                        isrehome: true
+                    },
+                    {
+                        id: 2,
+                        name: "Dining Table",
+                        description: "Beautiful wooden dining table for 6 people",
+                        image_url: ["https://images.unsplash.com/photo-1449247709967-d4461a6a6103?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"],
+                        price: 150,
+                        created_at: new Date().toISOString(),
+                        seller_email: "user@example.com",
+                        city_name: "Rotterdam",
+                        sold: false,
+                        isrehome: false
+                    },
+                    {
+                        id: 3,
+                        name: "Office Chair",
+                        description: "Ergonomic office chair with lumbar support",
+                        image_url: ["https://images.unsplash.com/photo-1541558869434-2840d308329a?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"],
+                        price: 75,
+                        created_at: new Date().toISOString(),
+                        seller_email: "office@example.com",
+                        city_name: "Utrecht",
+                        sold: false,
+                        isrehome: true
+                    }
+                ];
+                return res.json(mockData);
+            }
+            
             return res.status(500).json({ 
                 error: 'Supabase error',
                 details: error.message || error
@@ -237,7 +292,7 @@ app.get('/api/furniture', async (req, res) => {
         }
 
         console.log('Sending successful response with data:', data);
-        res.json(data);
+        res.json(data || []);
     } catch (err) {
         console.error('Caught exception in furniture endpoint:', err);
         console.error('Error stack:', err.stack);
