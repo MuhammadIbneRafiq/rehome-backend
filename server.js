@@ -27,8 +27,18 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 // Initialize Resend only if API key is available
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-// Middleware
-app.use(cors());
+// CORS Configuration - Enable CORS for all routes and origins
+app.use(cors({
+    origin: true, // Allow all origins
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    credentials: true,
+    optionsSuccessStatus: 200 // For legacy browser support
+}));
+
+// Handle preflight OPTIONS requests
+app.options('*', cors());
+
 app.use(json()); // for parsing application/json
 
 // Set up Multer for file uploads (in-memory storage for simplicity)
@@ -793,12 +803,6 @@ io.on('connection', (socket) => {
 
 
 app.use(helmet());
-app.use(cors({
-    origin: "*", // Change to your frontend URL in production
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
-}));
 
 // Rate limiting
 const limiter = rateLimit({
