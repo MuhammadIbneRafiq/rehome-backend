@@ -1,40 +1,33 @@
 {
-  "name": "server",
+  "name": "rehome-backend",
   "version": "1.0.0",
-  "type": "module",
-  "main": "server.js",
+  "description": "ReHome backend API with Supabase integration",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "jest"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "keywords": [
+    "rehome",
+    "moving",
+    "furniture",
+    "api",
+    "supabase"
+  ],
+  "author": "ReHome Team",
+  "license": "MIT",
   "dependencies": {
-    "@mollie/api-client": "^4.1.0",
-    "@supabase/supabase-js": "^2.48.1",
-    "axios": "^1.9.0",
-    "bcryptjs": "^2.4.3",
+    "@supabase/supabase-js": "^2.38.4",
+    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "express-rate-limit": "^7.4.1",
-    "helmet": "^8.0.0",
-    "joi": "^17.13.3",
-    "jsonwebtoken": "^9.0.2",
-    "multer": "^1.4.5-lts.1",
-    "node-appwrite": "^15.0.0",
-    "pg": "^8.13.1",
-    "react-toastify": "^11.0.5",
-    "resend": "^4.1.2",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
-    "uuid": "^9.0.1"
+    "dotenv": "^16.3.1",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "compression": "^1.7.4"
   },
   "devDependencies": {
-    "@types/socket.io-client": "^3.0.0",
-    "supabase": "^2.24.3"
+    "nodemon": "^3.0.2",
+    "jest": "^29.7.0"
   }
 }
