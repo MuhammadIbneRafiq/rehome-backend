@@ -49,7 +49,7 @@ const upload = multer({ storage: storage });
 import { createMollieClient } from '@mollie/api-client';
 
 
-app.post("/mollie", async (req, res) => {
+app.post("/api/mollie", async (req, res) => {
 const amount = req.body.amount; // Get the amount from the request
   
   // Check if Mollie API key is available
@@ -80,7 +80,7 @@ const amount = req.body.amount; // Get the amount from the request
 });
   
 
-app.post('/mollie-webhook', (req, res) => {
+app.post('/api/mollie-webhook', (req, res) => {
     const paymentId = req.body.id;
     // Verify and process the payment
     // Respond with a 200 status
@@ -122,7 +122,7 @@ import projectRoutes from './api/projects.js';
 
 // --------------------  Application Routes --------------------
 
-app.get("/", (req, res) => {
+app.get("/api", (req, res) => {
     res.send("ReHome B.V. running successfully... 🚀");
 });
 
@@ -132,7 +132,7 @@ app.use('/api/projects', projectRoutes);
 
 // --------------------  Authentication Routes --------------------
 // Auth
-app.post("/auth/signup", async (req, res) => {
+app.post("/api/auth/signup", async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -160,7 +160,7 @@ app.post("/auth/signup", async (req, res) => {
     }
 });
 
-app.post("/auth/login", async (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -194,7 +194,7 @@ app.post("/auth/login", async (req, res) => {
     }
 });
 
-app.post("/auth/logout", authenticateUser, async (req, res) => {
+app.post("/api/auth/logout", authenticateUser, async (req, res) => {
     const authHeader = req.headers.authorization || "";
     const token = authHeader.split(" ")[1]; // Assuming "Bearer TOKEN"
 
@@ -1112,7 +1112,7 @@ const pricingCalculationSchema = Joi.object({
 // Routes
 
 // Health check
-app.get("/", (req, res) => {
+app.get("/api/health-check", (req, res) => {
     res.json({ success: true, message: "ReHome Pricing System API running successfully 🚀" });
 });
 
