@@ -997,87 +997,6 @@ app.put('/api/projects/:projectId', async (req, res) => {
     }
 });
 
-// Setup WebSocket connection for real-time updates
-const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: "*", // Update with your frontend URL in production
-        methods: ["GET", "POST"]
-    }
-});
-
-// Handle socket connections
-io.on('connection', (socket) => {
-    console.log('Client connected');
-
-    // Handle joining rooms
-    socket.on('join', (room) => {
-        socket.join(room);
-        console.log(`Client joined room: ${room}`);
-    });
-
-    // Handle leaving rooms
-    socket.on('leave', (room) => {
-        socket.leave(room);
-        console.log(`Client left room: ${room}`);
-    });
-
-    socket.on('disconnect', () => {
-        console.log('Client disconnected');
-    });
-});
-
-// Setup Supabase realtime subscriptions
-const setupRealtimeSubscriptions = async () => {
-    try {
-        // Subscribe to chat messages
-        const messageChannel = supabase
-            .channel('public:messages')
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'messages'
-            }, (payload) => {
-                // Emit to specific chat room
-                io.to(`chat_${payload.new.chat_id}`).emit('message_update', payload.new);
-                // Emit to specific user
-                io.to(`user_${payload.new.user_id}`).emit('message_update', payload.new);
-            })
-            .subscribe();
-
-        // Subscribe to project updates
-        const projectChannel = supabase
-            .channel('public:projects')
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'projects'
-            }, (payload) => {
-                // Emit to specific user
-                io.to(`user_${payload.new.user_id}`).emit('project_update', payload.new);
-            })
-            .subscribe();
-            
-        console.log('Realtime subscriptions setup complete');
-    } catch (error) {
-        console.error('Error setting up realtime subscriptions:', error);
-    }
-};
-
-// Setup realtime subscriptions when server starts
-setupRealtimeSubscriptions();
-
-app.use(helmet());
-
-// Rate limiting
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100 // limit each IP to 100 requests per windowMs
-});
-app.use(limiter);
-
-app.use(express.json({ limit: '10mb' }));
-
 // Helper functions
 const generateToken = (user) => {
     return jwt.sign(
@@ -1819,11 +1738,5 @@ app.get("/api/audit-logs", authenticateAdmin, async (req, res) => {
         res.status(500).json({ success: false, error: "Internal server error" });
     }
 });
-
-// Start the server
-server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}`);
-});
-
 
 export default app;
