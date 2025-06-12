@@ -16,6 +16,8 @@ import { v4 as uuidv4 } from 'uuid'; // Import uuid to generate unique file name
 import { Resend } from 'resend';
 import { Server } from 'socket.io';
 import http from 'http';
+import { createMollieClient } from '@mollie/api-client';
+import { authenticateUser } from './middleware/auth.js';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -44,10 +46,6 @@ app.use(json()); // for parsing application/json
 // Set up Multer for file uploads (in-memory storage for simplicity)
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
-
-
-import { createMollieClient } from '@mollie/api-client';
-
 
 app.post("/api/mollie", async (req, res) => {
 const amount = req.body.amount; // Get the amount from the request
@@ -88,33 +86,6 @@ app.post('/api/mollie-webhook', (req, res) => {
     res.sendStatus(200);
   });
   
-
-const authenticateUser = async (req, res, next) => {
-    const authHeader = req.headers.authorization || "";
-    const token = authHeader.split(" ")[1]; // Assuming "Bearer TOKEN"
-
-    if (!token) {
-        return res.status(401).json({ error: "Authentication token is required" });
-    }
-
-    try {
-        const { data: user, error } = await supabaseClient.auth.getUser(token);
-
-        if (error) {
-            throw error;
-        }
-
-        if (!user || !user.user) { // Double check user exists
-            return res.status(403).json({ error: "Invalid token or user not found" });
-        }
-
-        req.user = user.user;
-        next();
-    } catch (error) {
-        console.error("Authentication Error:", error); // Log the error
-        return res.status(403).json({ error: "Invalid token or user not found" });
-    }
-};
 
 // Import routes
 import chatRoutes from './api/chat.js';
@@ -1740,3 +1711,11 @@ app.get("/api/audit-logs", authenticateAdmin, async (req, res) => {
 });
 
 export default app;
+
+// Start the server only when running this file directly (for local development)
+if (process.env.NODE_ENV !== 'production') {
+    const port = process.env.PORT || 3000;
+    app.listen(port, () => {
+        console.log(`Server listening on port ${port}`);
+    });
+}

@@ -1,11 +1,11 @@
 import express from 'express';
 import { supabaseClient } from '../db/params.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateUser } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Get all projects for a user
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', authenticateUser, async (req, res) => {
     try {
         const { data, error } = await supabaseClient
             .from('projects_with_chat_view')
@@ -26,7 +26,7 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // Get a specific project
-router.get('/:projectId', authenticateToken, async (req, res) => {
+router.get('/:projectId', authenticateUser, async (req, res) => {
     const { projectId } = req.params;
     
     try {
@@ -54,7 +54,7 @@ router.get('/:projectId', authenticateToken, async (req, res) => {
 });
 
 // Create a new project
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateUser, async (req, res) => {
     const { chatId, title, description } = req.body;
     
     try {
@@ -81,7 +81,7 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 // Update project status
-router.put('/:projectId', authenticateToken, async (req, res) => {
+router.put('/:projectId', authenticateUser, async (req, res) => {
     const { projectId } = req.params;
     const { status } = req.body;
     
@@ -109,7 +109,7 @@ router.put('/:projectId', authenticateToken, async (req, res) => {
 });
 
 // Delete a project
-router.delete('/:projectId', authenticateToken, async (req, res) => {
+router.delete('/:projectId', authenticateUser, async (req, res) => {
     const { projectId } = req.params;
     
     try {

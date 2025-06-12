@@ -1,11 +1,11 @@
 import express from 'express';
 import { supabaseClient } from '../db/params.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateUser } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Get all chats for a user
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', authenticateUser, async (req, res) => {
     try {
         const { data, error } = await supabaseClient
             .rpc('get_user_chats_with_latest_message', { user_uuid: req.user.id });
@@ -23,7 +23,7 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // Get messages for a specific chat
-router.get('/:chatId/messages', authenticateToken, async (req, res) => {
+router.get('/:chatId/messages', authenticateUser, async (req, res) => {
     const { chatId } = req.params;
     
     try {
@@ -47,7 +47,7 @@ router.get('/:chatId/messages', authenticateToken, async (req, res) => {
 });
 
 // Create a new chat
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateUser, async (req, res) => {
     const { title } = req.body;
     
     try {
@@ -76,7 +76,7 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 // Send a new message
-router.post('/:chatId/messages', authenticateToken, async (req, res) => {
+router.post('/:chatId/messages', authenticateUser, async (req, res) => {
     const { chatId } = req.params;
     const { content, sender = 'user' } = req.body;
     
@@ -104,7 +104,7 @@ router.post('/:chatId/messages', authenticateToken, async (req, res) => {
 });
 
 // Update chat status
-router.put('/:chatId', authenticateToken, async (req, res) => {
+router.put('/:chatId', authenticateUser, async (req, res) => {
     const { chatId } = req.params;
     const { is_active } = req.body;
     
