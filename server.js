@@ -116,11 +116,19 @@ const authenticateUser = async (req, res, next) => {
     }
 };
 
+// Import routes
+import chatRoutes from './api/chat.js';
+import projectRoutes from './api/projects.js';
+
 // --------------------  Application Routes --------------------
 
 app.get("/", (req, res) => {
     res.send("ReHome B.V. running successfully... 🚀");
 });
+
+// Use routes
+app.use('/api/chats', chatRoutes);
+app.use('/api/projects', projectRoutes);
 
 // --------------------  Authentication Routes --------------------
 // Auth
@@ -804,7 +812,192 @@ app.put('/api/messages/read', async (req, res) => {
     }
 });
 
-// Setup WebSocket connection for real-time messages
+// -------------------- Chat & Message Routes --------------------
+
+// Get all chats for a user
+app.get('/api/chats', async (req, res) => {
+    const userId = req.user.id; // Assuming you have auth middleware setting req.user
+    
+    try {
+        const { data, error } = await supabase
+            .rpc('get_user_chats_with_latest_message', { user_uuid: userId });
+
+        if (error) {
+            console.error('Error fetching chats:', error);
+            return res.status(500).json({ error: 'Failed to fetch chats' });
+        }
+
+        res.json(data || []);
+    } catch (err) {
+        console.error('Error fetching chats:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Get messages for a specific chat
+app.get('/api/chats/:chatId/messages', async (req, res) => {
+    const { chatId } = req.params;
+    const userId = req.user.id;
+    
+    try {
+        const { data, error } = await supabase
+            .from('messages')
+            .select('*')
+            .eq('chat_id', chatId)
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true });
+
+        if (error) {
+            console.error('Error fetching messages:', error);
+            return res.status(500).json({ error: 'Failed to fetch messages' });
+        }
+
+        res.json(data || []);
+    } catch (err) {
+        console.error('Error fetching messages:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Create a new chat
+app.post('/api/chats', async (req, res) => {
+    const { title } = req.body;
+    const userId = req.user.id;
+    
+    try {
+        // Generate a unique chat_id
+        const chatId = `chat_${uuidv4()}`;
+        
+        const { data, error } = await supabase
+            .from('chats')
+            .insert([{
+                chat_id: chatId,
+                user_id: userId,
+                title: title
+            }])
+            .select();
+
+        if (error) {
+            console.error('Error creating chat:', error);
+            return res.status(500).json({ error: 'Failed to create chat' });
+        }
+
+        res.status(201).json(data ? data[0] : null);
+    } catch (err) {
+        console.error('Error creating chat:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Send a new message
+app.post('/api/chats/:chatId/messages', async (req, res) => {
+    const { chatId } = req.params;
+    const { content, sender = 'user' } = req.body;
+    const userId = req.user.id;
+    
+    try {
+        const { data, error } = await supabase
+            .from('messages')
+            .insert([{
+                chat_id: chatId,
+                user_id: userId,
+                content: content,
+                sender: sender
+            }])
+            .select();
+
+        if (error) {
+            console.error('Error sending message:', error);
+            return res.status(500).json({ error: 'Failed to send message' });
+        }
+
+        res.status(201).json(data ? data[0] : null);
+    } catch (err) {
+        console.error('Error sending message:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// -------------------- Project Routes --------------------
+
+// Get all projects for a user
+app.get('/api/projects', async (req, res) => {
+    const userId = req.user.id;
+    
+    try {
+        const { data, error } = await supabase
+            .from('projects_with_chat_view')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching projects:', error);
+            return res.status(500).json({ error: 'Failed to fetch projects' });
+        }
+
+        res.json(data || []);
+    } catch (err) {
+        console.error('Error fetching projects:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Create a new project
+app.post('/api/projects', async (req, res) => {
+    const { chatId, title, description } = req.body;
+    const userId = req.user.id;
+    
+    try {
+        const { data, error } = await supabase
+            .from('projects')
+            .insert([{
+                user_id: userId,
+                chat_id: chatId,
+                title: title,
+                description: description
+            }])
+            .select();
+
+        if (error) {
+            console.error('Error creating project:', error);
+            return res.status(500).json({ error: 'Failed to create project' });
+        }
+
+        res.status(201).json(data ? data[0] : null);
+    } catch (err) {
+        console.error('Error creating project:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Update project status
+app.put('/api/projects/:projectId', async (req, res) => {
+    const { projectId } = req.params;
+    const { status } = req.body;
+    const userId = req.user.id;
+    
+    try {
+        const { data, error } = await supabase
+            .from('projects')
+            .update({ status })
+            .eq('id', projectId)
+            .eq('user_id', userId)
+            .select();
+
+        if (error) {
+            console.error('Error updating project:', error);
+            return res.status(500).json({ error: 'Failed to update project' });
+        }
+
+        res.json(data ? data[0] : null);
+    } catch (err) {
+        console.error('Error updating project:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Setup WebSocket connection for real-time updates
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
@@ -813,58 +1006,66 @@ const io = new Server(server, {
     }
 });
 
-// Setup Supabase realtime subscription for messages
-const setupRealtimeMessaging = async () => {
-    try {
-        // Subscribe to all message insertions
-        const channel = supabase
-            .channel('public:marketplace_messages')
-            .on('postgres_changes', {
-                event: 'INSERT',
-                schema: 'public',
-                table: 'marketplace_messages'
-            }, (payload) => {
-                // Broadcast the new message to connected clients
-                const message = payload.new;
-                
-                // Emit to specific item room
-                io.to(`item_${message.item_id}`).emit('new_message', message);
-                
-                // Emit to specific user room
-                io.to(`user_${message.receiver_id}`).emit('new_message', message);
-            })
-            .subscribe();
-            
-        console.log('Realtime messaging setup complete');
-    } catch (error) {
-        console.error('Error setting up realtime messaging:', error);
-    }
-};
-
-setupRealtimeMessaging();
-
-// Socket.io connection handling
+// Handle socket connections
 io.on('connection', (socket) => {
-    console.log('A user connected');
-    
-    // Join item-specific room
-    socket.on('join_item', (itemId) => {
-        socket.join(`item_${itemId}`);
+    console.log('Client connected');
+
+    // Handle joining rooms
+    socket.on('join', (room) => {
+        socket.join(room);
+        console.log(`Client joined room: ${room}`);
     });
-    
-    // Join user-specific room
-    socket.on('join_user', (userId) => {
-        socket.join(`user_${userId}`);
+
+    // Handle leaving rooms
+    socket.on('leave', (room) => {
+        socket.leave(room);
+        console.log(`Client left room: ${room}`);
     });
-    
+
     socket.on('disconnect', () => {
-        console.log('A user disconnected');
+        console.log('Client disconnected');
     });
 });
 
+// Setup Supabase realtime subscriptions
+const setupRealtimeSubscriptions = async () => {
+    try {
+        // Subscribe to chat messages
+        const messageChannel = supabase
+            .channel('public:messages')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'messages'
+            }, (payload) => {
+                // Emit to specific chat room
+                io.to(`chat_${payload.new.chat_id}`).emit('message_update', payload.new);
+                // Emit to specific user
+                io.to(`user_${payload.new.user_id}`).emit('message_update', payload.new);
+            })
+            .subscribe();
 
+        // Subscribe to project updates
+        const projectChannel = supabase
+            .channel('public:projects')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'projects'
+            }, (payload) => {
+                // Emit to specific user
+                io.to(`user_${payload.new.user_id}`).emit('project_update', payload.new);
+            })
+            .subscribe();
+            
+        console.log('Realtime subscriptions setup complete');
+    } catch (error) {
+        console.error('Error setting up realtime subscriptions:', error);
+    }
+};
 
-
+// Setup realtime subscriptions when server starts
+setupRealtimeSubscriptions();
 
 app.use(helmet());
 
