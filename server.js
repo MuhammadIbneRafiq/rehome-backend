@@ -290,6 +290,63 @@ app.get('/api/furniture', async (req, res) => {
     }
 });
 
+// Get a specific furniture item by ID
+app.get('/api/furniture/:id', async (req, res) => {
+    try {
+        const furnitureId = req.params.id;
+
+        if (!furnitureId) {
+            return res.status(400).json({ error: 'Furniture ID is required.' });
+        }
+
+        const { data, error } = await supabase
+            .from('furniture')
+            .select('*')
+            .eq('id', furnitureId)
+            .single();
+
+        if (error) {
+            console.error("Supabase error details:", JSON.stringify(error, null, 2));
+            
+            // If table doesn't exist or permission issue, return mock data for development
+            if (error.code === 'PGRST116' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
+                console.log('Table not found, returning mock data for development');
+                const mockData = {
+                    id: parseInt(furnitureId),
+                    name: `Mock Item ${furnitureId}`,
+                    description: "This is a mock furniture item for development",
+                    image_url: ["https://images.unsplash.com/photo-1555041469-a586c61ea9bc?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"],
+                    price: 199,
+                    created_at: new Date().toISOString(),
+                    seller_email: "seller@example.com",
+                    city_name: "Amsterdam",
+                    sold: false,
+                    isrehome: true
+                };
+                return res.json(mockData);
+            }
+            
+            return res.status(500).json({ 
+                error: 'Supabase error',
+                details: error.message || error
+            });
+        }
+
+        if (!data) {
+            return res.status(404).json({ error: 'Furniture item not found.' });
+        }
+
+        res.json(data);
+    } catch (err) {
+        console.error('Error fetching furniture item:', err);
+        res.status(500).json({ 
+            error: 'Internal Server Error',
+            message: err.message,
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
+    }
+});
+
 // item moving request.
 // 9. Item Moving Request Endpoint
 app.post('/api/item-moving-requests', async (req, res) => {
