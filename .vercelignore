@@ -1,0 +1,39 @@
+# Development files
+node_modules
+.git
+.gitignore
+README.md
+*.md
+
+# Environment files (these should be set in Vercel dashboard)
+.env.local
+.env.development
+.env.example
+.env.sample
+
+# Test files
+tests
+**/*.test.*
+**/*.spec.*
+coverage
+
+# Build artifacts
+dist
+build
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs
+
+# Development dependencies
+nodemon.json 
