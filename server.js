@@ -2202,6 +2202,22 @@ app.put('/api/admin/bids/:bidId/reject', authenticateUser, async (req, res) => {
     }
 });
 
+// Debug endpoint for testing authentication
+app.post('/api/furniture/debug', authenticateUser, async (req, res) => {
+    console.log('=== DEBUG FURNITURE ENDPOINT ===');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('User from auth:', req.user?.email);
+    console.log('Headers:', req.headers);
+    
+    res.status(200).json({
+        success: true,
+        message: 'Authentication working',
+        user: req.user?.email,
+        bodyReceived: req.body,
+        timestamp: new Date().toISOString()
+    });
+});
+
 export default app;
 
 // Start the server only when running this file directly (for local development)
