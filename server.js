@@ -771,7 +771,29 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
 
 // 6. New Furniture Listing Endpoint
 app.post('/api/furniture/new', authenticateUser, async (req, res) => {
-    const { name, description, imageUrl, price, cityName, isRehome, category, subcategory, conditionRating, height, width, depth, pricingType, startingBid, latitude, longitude } = req.body;
+    console.log('=== NEW FURNITURE LISTING REQUEST ===');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('User from auth:', req.user?.email);
+
+    const { 
+        name, 
+        description, 
+        imageUrl,  // Frontend sends this
+        price, 
+        cityName, 
+        isRehome, 
+        category, 
+        subcategory, 
+        conditionRating, 
+        height, 
+        width, 
+        depth, 
+        pricingType, 
+        startingBid, 
+        latitude, 
+        longitude 
+    } = req.body;
+    
     const sellerEmail = req.user.email; // Get seller's email from the authenticated user
 
     // Comprehensive validation
@@ -807,11 +829,12 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
     }
     
     // Image validation (allow empty array if no images)
-    if (!Array.isArray(imageUrl)) {
+    if (imageUrl && !Array.isArray(imageUrl)) {
         validationErrors.push('Image URL must be an array');
     }
     
     if (validationErrors.length > 0) {
+        console.log('Validation errors:', validationErrors);
         return res.status(400).json({ error: validationErrors.join(', ') });
     }
 
@@ -823,40 +846,52 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
         const insertData = {
             name, 
             description, 
-            image_urls: Array.isArray(imageUrl) ? imageUrl : [imageUrl], // Convert to array format
-            price, 
+            image_urls: Array.isArray(imageUrl) ? imageUrl : (imageUrl ? [imageUrl] : []), // Handle both array and single URL
+            price: pricingType === 'fixed' ? parseFloat(price) : null, 
             seller_email: sellerEmail, 
             city_name: cityName, 
             sold: false,
-            is_rehome: finalIsRehome, // Fixed field name
+            is_rehome: finalIsRehome,
             category: category || null,
             subcategory: subcategory || null,
-            condition_rating: conditionRating || null,
-            height_cm: height || null,
-            width_cm: width || null,
-            depth_cm: depth || null,
+            condition_rating: conditionRating ? parseInt(conditionRating) : null,
+            height_cm: height && !isNaN(parseFloat(height)) ? parseFloat(height) : null,
+            width_cm: width && !isNaN(parseFloat(width)) ? parseFloat(width) : null,
+            depth_cm: depth && !isNaN(parseFloat(depth)) ? parseFloat(depth) : null,
             pricing_type: pricingType || 'fixed',
-            starting_bid: startingBid || null,
-            latitude: latitude || null,
-            longitude: longitude || null
+            starting_bid: pricingType === 'bidding' && startingBid ? parseFloat(startingBid) : null,
+            latitude: latitude && !isNaN(parseFloat(latitude)) ? parseFloat(latitude) : null,
+            longitude: longitude && !isNaN(parseFloat(longitude)) ? parseFloat(longitude) : null
         };
+
+        console.log('Data to insert:', JSON.stringify(insertData, null, 2));
 
         const { data, error } = await supabase
             .from('marketplace_furniture')
             .insert([insertData])
             .select();
             
-        console.log('Created furniture listing:', data);
+        console.log('Supabase insert response - Data:', data);
+        console.log('Supabase insert response - Error:', error);
         
         if (error) {
-            console.error('Error creating furniture:', error);
-            return res.status(500).json(handleSupabaseError(error));
+            console.error('Supabase error creating furniture:', error);
+            return res.status(500).json({ 
+                error: 'Failed to create listing', 
+                details: error.message,
+                code: error.code
+            });
         }
 
         res.status(201).json(data[0]); // Return the newly created item
     } catch (err) {
         console.error('Error creating furniture:', err);
-        res.status(500).json({ error: 'Internal Server Error' });
+        console.error('Error stack:', err.stack);
+        res.status(500).json({ 
+            error: 'Internal Server Error IN THE creation',
+            message: err.message,
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
     }
 });
 
