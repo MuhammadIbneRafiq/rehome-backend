@@ -188,6 +188,9 @@ app.post('/api/mollie-webhook', (req, res) => {
 import chatRoutes from './api/chat.js';
 import projectRoutes from './api/projects.js';
 import adminMarketplaceRoutes from './api/admin/marketplace.js';
+import adminCityPricesRoutes from './api/admin/city-prices.js';
+import adminPricingConfigsRoutes from './api/admin/pricing-configs.js';
+import adminPricingMultipliersRoutes from './api/admin/pricing-multipliers.js';
 
 // --------------------  Application Routes --------------------
 
@@ -199,6 +202,74 @@ app.get("/api", (req, res) => {
 app.use('/api/chats', chatRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/admin/marketplace', adminMarketplaceRoutes);
+app.use('/api/admin/city-prices', adminCityPricesRoutes);
+app.use('/api/admin/pricing-configs', adminPricingConfigsRoutes);
+app.use('/api/admin/pricing-multipliers', adminPricingMultipliersRoutes);
+
+// Admin furniture-items endpoint (alias for marketplace furniture)
+app.get('/api/admin/furniture-items', authenticateAdmin, async (req, res) => {
+  try {
+    const { page = 1, limit = 50, search, category, status } = req.query;
+    const offset = (page - 1) * limit;
+
+    let query = supabase
+      .from('furniture')
+      .select(`
+        *,
+        furniture_ratings(rating, comment)
+      `)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    // Apply filters
+    if (search) {
+      query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%,seller_email.ilike.%${search}%`);
+    }
+    if (category && category !== 'all') {
+      query = query.eq('category', category);
+    }
+    if (status && status !== 'all') {
+      if (status === 'available') {
+        query = query.eq('sold', false);
+      } else if (status === 'sold') {
+        query = query.eq('sold', true);
+      }
+    }
+
+    const { data: furniture, error, count } = await query;
+
+    if (error) {
+      console.error('Error fetching furniture items:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch furniture items'
+      });
+    }
+
+    // Map is_rehome to isrehome for consistency
+    const mappedFurniture = furniture.map(item => ({
+      ...item,
+      isrehome: item.is_rehome ?? false
+    }));
+
+    res.json({
+      success: true,
+      data: mappedFurniture,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: count || furniture.length,
+        hasMore: furniture.length === parseInt(limit)
+      }
+    });
+  } catch (error) {
+    console.error('Error in admin furniture-items endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
 
 // --------------------  Authentication Routes --------------------
 // Auth
