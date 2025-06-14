@@ -218,7 +218,7 @@ app.get('/api/furniture', async (req, res) => {
 
         console.log('Fetching furniture from Supabase...');
         const { data, error } = await supabase
-            .from('furniture')
+            .from('marketplace_furniture')
             .select('*');
 
         console.log('Supabase response - Data:', data);
@@ -300,7 +300,7 @@ app.get('/api/furniture/:id', async (req, res) => {
         }
 
         const { data, error } = await supabase
-            .from('furniture')
+            .from('marketplace_furniture')
             .select('*')
             .eq('id', furnitureId)
             .single();
@@ -531,7 +531,7 @@ app.post('/api/furniture', async (req, res) => {
 
     try {
         const { data, error } = await supabase
-            .from('furniture')
+            .from('marketplace_furniture')
             .insert([{ name, description, image_url, price }])
             .select(); // Return the inserted data
 
@@ -549,16 +549,36 @@ app.post('/api/furniture', async (req, res) => {
 // 3. Update a furniture item
 app.put('/api/furniture/:id', async (req, res) => {
     const furnitureId = req.params.id;
-    const { name, description, image_url, price } = req.body;
+    const { name, description, image_url, price, imageUrl, cityName, isRehome, category, subcategory, conditionRating, height, width, depth, pricingType, startingBid, latitude, longitude } = req.body;
 
     if (!furnitureId) {
         return res.status(400).json({ error: 'Furniture ID is required.' });
     }
 
     try {
+        // Build update object with only provided fields
+        const updateData = {};
+        if (name !== undefined) updateData.name = name;
+        if (description !== undefined) updateData.description = description;
+        if (image_url !== undefined) updateData.image_url = image_url;
+        if (imageUrl !== undefined) updateData.image_url = imageUrl; // Support both formats
+        if (price !== undefined) updateData.price = price;
+        if (cityName !== undefined) updateData.city_name = cityName;
+        if (isRehome !== undefined) updateData.isrehome = isRehome;
+        if (category !== undefined) updateData.category = category;
+        if (subcategory !== undefined) updateData.subcategory = subcategory;
+        if (conditionRating !== undefined) updateData.condition_rating = conditionRating;
+        if (height !== undefined) updateData.height_cm = height;
+        if (width !== undefined) updateData.width_cm = width;
+        if (depth !== undefined) updateData.depth_cm = depth;
+        if (pricingType !== undefined) updateData.pricing_type = pricingType;
+        if (startingBid !== undefined) updateData.starting_bid = startingBid;
+        if (latitude !== undefined) updateData.latitude = latitude;
+        if (longitude !== undefined) updateData.longitude = longitude;
+
         const { data, error } = await supabase
-            .from('furniture')
-            .update({ name, description, image_url, price })
+            .from('marketplace_furniture')
+            .update(updateData)
             .eq('id', furnitureId)
             .select();
 
@@ -587,7 +607,7 @@ app.delete('/api/furniture/:id', async (req, res) => {
 
     try {
         const { error } = await supabase
-            .from('furniture')
+            .from('marketplace_furniture')
             .delete()
             .eq('id', furnitureId);
 
@@ -647,7 +667,7 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
 
 // 6. New Furniture Listing Endpoint
 app.post('/api/furniture/new', authenticateUser, async (req, res) => {
-    const { name, description, imageUrl, price, cityName } = req.body; // Changed image_url to imageUrl
+    const { name, description, imageUrl, price, cityName, isRehome, category, subcategory, conditionRating, height, width, depth, pricingType, startingBid, latitude, longitude } = req.body;
     const sellerEmail = req.user.email; // Get seller's email from the authenticated user
 
     if (!name || !price || !imageUrl || !cityName) { // Modified check
@@ -655,11 +675,38 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
     }
 
     try {
+        // Check if seller is admin - if so, automatically set isRehome to true
+        const isAdminUser = ADMIN_EMAILS.includes(sellerEmail);
+        const finalIsRehome = isAdminUser ? true : (isRehome || false);
+        
+        const insertData = {
+            name, 
+            description, 
+            image_url: imageUrl, 
+            price, 
+            seller_email: sellerEmail, 
+            city_name: cityName, 
+            sold: false,
+            isrehome: finalIsRehome,
+            category: category || null,
+            subcategory: subcategory || null,
+            condition_rating: conditionRating || null,
+            height_cm: height || null,
+            width_cm: width || null,
+            depth_cm: depth || null,
+            pricing_type: pricingType || 'fixed',
+            starting_bid: startingBid || null,
+            latitude: latitude || null,
+            longitude: longitude || null
+        };
+
         const { data, error } = await supabase
-            .from('furniture')
-            .insert([{ name, description, image_url: imageUrl, price, seller_email: sellerEmail, city_name: cityName, sold: false}])
+            .from('marketplace_furniture')
+            .insert([insertData])
             .select();
-        console.log('this is NEW FUNR', data)
+            
+        console.log('Created furniture listing:', data);
+        
         if (error) {
             console.error('Error creating furniture:', error);
             return res.status(500).json(handleSupabaseError(error));
@@ -704,7 +751,7 @@ app.post('/api/furniture/sold/:id', authenticateUser, async (req, res) => {
     try {
         // 1. Fetch the furniture item to get all its data
         const { data: furnitureData, error: fetchError } = await supabase
-            .from('furniture')
+            .from('marketplace_furniture')
             .select('*')
             .eq('id', furnitureId)
             .single(); // Expect only one result (or null)
@@ -727,14 +774,14 @@ app.post('/api/furniture/sold/:id', authenticateUser, async (req, res) => {
             console.error('Error inserting into sold_furniture:', insertError);
             return res.status(500).json({ error: 'Failed to move furniture item to sold.' });
         }
-        // 3. Delete from furniture table
+        // 3. Delete from marketplace_furniture table
         const { error: deleteError } = await supabase
-            .from('furniture')
+            .from('marketplace_furniture')
             .delete()
             .eq('id', furnitureId);
 
         if (deleteError) {
-            console.error('Error deleting from furniture:', deleteError);
+            console.error('Error deleting from marketplace_furniture:', deleteError);
             return res.status(500).json({ error: 'Failed to remove furniture item from active listings.' });
         }
 
