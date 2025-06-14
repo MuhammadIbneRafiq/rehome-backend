@@ -187,6 +187,7 @@ app.post('/api/mollie-webhook', (req, res) => {
 // Import routes
 import chatRoutes from './api/chat.js';
 import projectRoutes from './api/projects.js';
+import adminMarketplaceRoutes from './api/admin/marketplace.js';
 
 // --------------------  Application Routes --------------------
 
@@ -197,6 +198,7 @@ app.get("/api", (req, res) => {
 // Use routes
 app.use('/api/chats', chatRoutes);
 app.use('/api/projects', projectRoutes);
+app.use('/api/admin/marketplace', adminMarketplaceRoutes);
 
 // --------------------  Authentication Routes --------------------
 // Auth
@@ -374,8 +376,15 @@ app.get('/api/furniture', async (req, res) => {
             });
         }
 
-        console.log('Sending successful response with data:', data);
-        res.json(data || []);
+        // Map database field names to frontend expected field names
+        const mappedData = (data || []).map(item => ({
+            ...item,
+            isrehome: item.is_rehome, // Map is_rehome to isrehome for frontend
+            image_url: item.image_urls // Also ensure consistency for image field
+        }));
+
+        console.log('Sending successful response with mapped data:', mappedData);
+        res.json(mappedData);
     } catch (err) {
         console.error('Caught exception in furniture endpoint:', err);
         console.error('Error stack:', err.stack);
@@ -433,7 +442,14 @@ app.get('/api/furniture/:id', async (req, res) => {
             return res.status(404).json({ error: 'Furniture item not found.' });
         }
 
-        res.json(data);
+        // Map database field names to frontend expected field names
+        const mappedData = {
+            ...data,
+            isrehome: data.is_rehome, // Map is_rehome to isrehome for frontend
+            image_url: data.image_urls // Also ensure consistency for image field
+        };
+
+        res.json(mappedData);
     } catch (err) {
         console.error('Error fetching furniture item:', err);
         res.status(500).json({ 
@@ -1903,6 +1919,54 @@ app.get("/api/audit-logs", authenticateAdmin, async (req, res) => {
 
 // --------------------  Bidding System Routes --------------------
 
+// Helper function to update highest bid status for an item
+const updateHighestBidStatus = async (itemId) => {
+    try {
+        const itemIdStr = String(itemId);
+        
+        // First, reset all bids for this item to not be highest
+        await supabase
+            .from('marketplace_bids')
+            .update({ is_highest_bid: false })
+            .eq('item_id', itemIdStr);
+
+        // Find the highest approved bid
+        const { data: highestBid, error: highestError } = await supabase
+            .from('marketplace_bids')
+            .select('*')
+            .eq('item_id', itemIdStr)
+            .eq('status', 'approved')
+            .order('bid_amount', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (highestError && highestError.code !== 'PGRST116') {
+            throw highestError;
+        }
+
+        // If there's a highest bid, mark it as highest
+        if (highestBid) {
+            await supabase
+                .from('marketplace_bids')
+                .update({ is_highest_bid: true })
+                .eq('id', highestBid.id);
+            
+            // Mark all other approved bids as outbid
+            await supabase
+                .from('marketplace_bids')
+                .update({ status: 'outbid' })
+                .eq('item_id', itemIdStr)
+                .eq('status', 'approved')
+                .neq('id', highestBid.id);
+        }
+
+        console.log(`Updated highest bid status for item ${itemIdStr}`);
+    } catch (error) {
+        console.error('Error updating highest bid status:', error);
+        throw error;
+    }
+};
+
 // Get all bids for a specific item
 app.get('/api/bids/:itemId', async (req, res) => {
     try {
@@ -1927,16 +1991,42 @@ app.get('/api/bids/:itemId/highest', async (req, res) => {
     try {
         const itemIdStr = String(req.params.itemId);
         
-        const { data, error } = await supabase
+        // First try to get the highest approved bid
+        const { data: approvedHighest, error: approvedError } = await supabase
             .from('marketplace_bids')
             .select('*')
             .eq('item_id', itemIdStr)
             .eq('status', 'approved')
-            .eq('is_highest_bid', true)
+            .order('bid_amount', { ascending: false })
+            .limit(1)
             .single();
 
-        if (error && error.code !== 'PGRST116') throw error;
-        res.json(data || null);
+        if (approvedError && approvedError.code !== 'PGRST116') {
+            throw approvedError;
+        }
+
+        // If there's an approved bid, return it
+        if (approvedHighest) {
+            res.json(approvedHighest);
+            return;
+        }
+
+        // If no approved bids, get the highest pending bid to show what's being considered
+        const { data: pendingHighest, error: pendingError } = await supabase
+            .from('marketplace_bids')
+            .select('*')
+            .eq('item_id', itemIdStr)
+            .eq('status', 'pending')
+            .order('bid_amount', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (pendingError && pendingError.code !== 'PGRST116') {
+            throw pendingError;
+        }
+
+        // Return the highest pending bid if no approved bids exist
+        res.json(pendingHighest || null);
     } catch (error) {
         console.error('Error fetching highest bid:', error);
         res.status(500).json({ error: 'Failed to fetch highest bid' });
@@ -2153,6 +2243,16 @@ app.put('/api/admin/bids/:bidId/approve', authenticateUser, async (req, res) => 
         const { admin_notes } = req.body;
         const adminEmail = req.user.email;
 
+        // First, get the bid that's being approved
+        const { data: bidToApprove, error: fetchError } = await supabase
+            .from('marketplace_bids')
+            .select('*')
+            .eq('id', bidId)
+            .single();
+
+        if (fetchError) throw fetchError;
+
+        // Approve the bid
         const { data, error } = await supabase
             .from('marketplace_bids')
             .update({
@@ -2167,6 +2267,10 @@ app.put('/api/admin/bids/:bidId/approve', authenticateUser, async (req, res) => 
             .single();
 
         if (error) throw error;
+
+        // Update highest bid status for this item
+        await updateHighestBidStatus(bidToApprove.item_id);
+
         res.json({ success: true, data, message: 'Bid approved successfully' });
     } catch (error) {
         console.error('Error approving bid:', error);
@@ -2181,6 +2285,15 @@ app.put('/api/admin/bids/:bidId/reject', authenticateUser, async (req, res) => {
         const { admin_notes } = req.body;
         const adminEmail = req.user.email;
 
+        // First, get the bid that's being rejected
+        const { data: bidToReject, error: fetchError } = await supabase
+            .from('marketplace_bids')
+            .select('*')
+            .eq('id', bidId)
+            .single();
+
+        if (fetchError) throw fetchError;
+
         const { data, error } = await supabase
             .from('marketplace_bids')
             .update({
@@ -2188,6 +2301,7 @@ app.put('/api/admin/bids/:bidId/reject', authenticateUser, async (req, res) => {
                 approved_by: adminEmail,
                 approved_at: new Date().toISOString(),
                 admin_notes: admin_notes || null,
+                is_highest_bid: false,
                 updated_at: new Date().toISOString()
             })
             .eq('id', bidId)
@@ -2195,10 +2309,180 @@ app.put('/api/admin/bids/:bidId/reject', authenticateUser, async (req, res) => {
             .single();
 
         if (error) throw error;
+
+        // Update highest bid status for this item
+        await updateHighestBidStatus(bidToReject.item_id);
+
         res.json({ success: true, data, message: 'Bid rejected successfully' });
     } catch (error) {
         console.error('Error rejecting bid:', error);
         res.status(500).json({ error: 'Failed to reject bid' });
+    }
+});
+
+// Admin: Refresh highest bid status for all items
+app.post('/api/admin/bids/refresh-highest', authenticateUser, async (req, res) => {
+    try {
+        // Get all unique item IDs that have bids
+        const { data: items, error: itemsError } = await supabase
+            .from('marketplace_bids')
+            .select('item_id')
+            .not('item_id', 'is', null);
+
+        if (itemsError) throw itemsError;
+
+        // Get unique item IDs
+        const uniqueItemIds = [...new Set(items.map(item => item.item_id))];
+
+        // Update highest bid status for each item
+        const updatePromises = uniqueItemIds.map(itemId => updateHighestBidStatus(itemId));
+        await Promise.all(updatePromises);
+
+        res.json({ 
+            success: true, 
+            message: `Updated highest bid status for ${uniqueItemIds.length} items`,
+            itemsUpdated: uniqueItemIds.length
+        });
+    } catch (error) {
+        console.error('Error refreshing highest bid status:', error);
+        res.status(500).json({ error: 'Failed to refresh highest bid status' });
+    }
+});
+
+// Admin: Get all marketplace furniture
+app.get('/api/admin/marketplace-furniture', authenticateUser, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('marketplace_furniture')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        
+        // Map database field names to frontend expected field names
+        const mappedData = (data || []).map(item => ({
+            ...item,
+            isrehome: item.is_rehome, // Map is_rehome to isrehome for frontend
+            image_url: item.image_urls // Also ensure consistency for image field
+        }));
+        
+        res.json(mappedData);
+    } catch (error) {
+        console.error('Error fetching marketplace furniture:', error);
+        res.status(500).json({ error: 'Failed to fetch marketplace furniture' });
+    }
+});
+
+// Admin: Delete marketplace furniture item
+app.delete('/api/admin/marketplace-furniture/:itemId', authenticateUser, async (req, res) => {
+    try {
+        const { itemId } = req.params;
+        const adminEmail = req.user.email;
+
+        // Check if user is admin
+        if (!isAdmin(adminEmail)) {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        const { error } = await supabase
+            .from('marketplace_furniture')
+            .delete()
+            .eq('id', itemId);
+
+        if (error) throw error;
+        res.json({ success: true, message: 'Furniture item deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting marketplace furniture:', error);
+        res.status(500).json({ error: 'Failed to delete furniture item' });
+    }
+});
+
+// Admin: Update marketplace furniture item
+app.put('/api/admin/marketplace-furniture/:itemId', authenticateUser, async (req, res) => {
+    try {
+        const { itemId } = req.params;
+        const updates = req.body;
+        const adminEmail = req.user.email;
+
+        // Check if user is admin
+        if (!isAdmin(adminEmail)) {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        const { data, error } = await supabase
+            .from('marketplace_furniture')
+            .update({
+                ...updates,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', itemId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        
+        // Map database field names to frontend expected field names
+        const mappedData = {
+            ...data,
+            isrehome: data.is_rehome, // Map is_rehome to isrehome for frontend
+            image_url: data.image_urls // Also ensure consistency for image field
+        };
+        
+        res.json({ success: true, data: mappedData, message: 'Furniture item updated successfully' });
+    } catch (error) {
+        console.error('Error updating marketplace furniture:', error);
+        res.status(500).json({ error: 'Failed to update furniture item' });
+    }
+});
+
+// Update item status (available/reserved/sold) - for both users and admins
+app.put('/api/furniture/:itemId/status', authenticateUser, async (req, res) => {
+    try {
+        const { itemId } = req.params;
+        const { status } = req.body;
+        const userEmail = req.user.email;
+
+        if (!['available', 'reserved', 'sold'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status. Must be available, reserved, or sold' });
+        }
+
+        // Check if user owns the item or is admin
+        const { data: item, error: fetchError } = await supabase
+            .from('marketplace_furniture')
+            .select('seller_email')
+            .eq('id', itemId)
+            .single();
+
+        if (fetchError) throw fetchError;
+
+        if (item.seller_email !== userEmail && !isAdmin(userEmail)) {
+            return res.status(403).json({ error: 'You can only update your own listings' });
+        }
+
+        const { data, error } = await supabase
+            .from('marketplace_furniture')
+            .update({
+                status: status,
+                sold: status === 'sold', // Keep sold field in sync for backward compatibility
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', itemId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Map database field names to frontend expected field names
+        const mappedData = {
+            ...data,
+            isrehome: data.is_rehome, // Map is_rehome to isrehome for frontend
+            image_url: data.image_urls // Also ensure consistency for image field
+        };
+
+        res.json({ success: true, data: mappedData, message: `Item status updated to ${status}` });
+    } catch (error) {
+        console.error('Error updating item status:', error);
+        res.status(500).json({ error: 'Failed to update item status' });
     }
 });
 
@@ -2217,6 +2501,34 @@ app.post('/api/furniture/debug', authenticateUser, async (req, res) => {
         timestamp: new Date().toISOString()
     });
 });
+
+// Database migration for status field (run once)
+const migrateStatusField = async () => {
+    try {
+        // Add status column if it doesn't exist
+        await supabase.rpc('exec', {
+            sql: `
+                DO $$ 
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='marketplace_furniture' AND column_name='status') THEN
+                        ALTER TABLE marketplace_furniture ADD COLUMN status VARCHAR(20) DEFAULT 'available' CHECK (status IN ('available', 'reserved', 'sold'));
+                        
+                        -- Update existing data: set status based on sold field
+                        UPDATE marketplace_furniture SET status = CASE WHEN sold THEN 'sold' ELSE 'available' END;
+                    END IF;
+                END $$;
+            `
+        });
+        console.log('Status field migration completed');
+    } catch (error) {
+        console.log('Status field migration already exists or failed:', error.message);
+    }
+};
+
+// Run migration on startup
+if (supabase) {
+    migrateStatusField();
+}
 
 export default app;
 
