@@ -632,9 +632,14 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
       const uploadedFiles = req.files;
       const imageUrls = [];
       console.log('uplod', uploadedFiles)
-      // Check if the bucket exists (but don't try to create it here!)
+      // Check if the bucket exists and is public
       const { data: bucketData, error: bucketError } = await supabaseClient.storage.getBucket('furniture-images');
-      console.log('thi sis buckt data', bucketData)
+      console.log('Bucket data:', bucketData);
+      
+      if (bucketError) {
+          console.error('Bucket error:', bucketError);
+          return res.status(500).json({ error: 'Storage bucket not accessible', details: bucketError });
+      }
 
       for (const file of uploadedFiles) {
           // Generate a unique filename
@@ -653,8 +658,10 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
               console.error('Error uploading file:', uploadError);
               return res.status(500).json({ error: 'Failed to upload image.', details: uploadError });
           }
+          
+          console.log('Upload successful:', uploadData);
           const imageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/furniture-images/${fileName}`;
-          console.log('this is img url', imageUrl)
+          console.log('Generated image URL:', imageUrl);
           imageUrls.push(imageUrl);
       }
 
