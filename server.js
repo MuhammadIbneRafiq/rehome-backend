@@ -560,11 +560,11 @@ app.put('/api/furniture/:id', async (req, res) => {
         const updateData = {};
         if (name !== undefined) updateData.name = name;
         if (description !== undefined) updateData.description = description;
-        if (image_url !== undefined) updateData.image_url = image_url;
-        if (imageUrl !== undefined) updateData.image_url = imageUrl; // Support both formats
+        if (image_url !== undefined) updateData.image_urls = Array.isArray(image_url) ? image_url : [image_url];
+        if (imageUrl !== undefined) updateData.image_urls = Array.isArray(imageUrl) ? imageUrl : [imageUrl]; // Support both formats
         if (price !== undefined) updateData.price = price;
         if (cityName !== undefined) updateData.city_name = cityName;
-        if (isRehome !== undefined) updateData.isrehome = isRehome;
+        if (isRehome !== undefined) updateData.is_rehome = isRehome;
         if (category !== undefined) updateData.category = category;
         if (subcategory !== undefined) updateData.subcategory = subcategory;
         if (conditionRating !== undefined) updateData.condition_rating = conditionRating;
@@ -670,8 +670,45 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
     const { name, description, imageUrl, price, cityName, isRehome, category, subcategory, conditionRating, height, width, depth, pricingType, startingBid, latitude, longitude } = req.body;
     const sellerEmail = req.user.email; // Get seller's email from the authenticated user
 
-    if (!name || !price || !imageUrl || !cityName) { // Modified check
-        return res.status(400).json({ error: 'Name, price, city and image URL are required.' });
+    // Comprehensive validation
+    const validationErrors = [];
+    
+    if (!name || name.trim().length === 0) {
+        validationErrors.push('Furniture name is required');
+    }
+    
+    if (!description || description.trim().length === 0) {
+        validationErrors.push('Description is required');
+    }
+    
+    if (!category || category.trim().length === 0) {
+        validationErrors.push('Category is required');
+    }
+    
+    if (!conditionRating || isNaN(parseInt(conditionRating))) {
+        validationErrors.push('Condition rating is required');
+    }
+    
+    if (!cityName || cityName.trim().length === 0) {
+        validationErrors.push('Location is required');
+    }
+    
+    // Pricing validation
+    if (pricingType === 'fixed' && (!price || isNaN(parseFloat(price)) || parseFloat(price) <= 0)) {
+        validationErrors.push('Valid price is required for fixed pricing');
+    }
+    
+    if (pricingType === 'bidding' && (!startingBid || isNaN(parseFloat(startingBid)) || parseFloat(startingBid) <= 0)) {
+        validationErrors.push('Valid starting bid is required for auction pricing');
+    }
+    
+    // Image validation (allow empty array if no images)
+    if (!Array.isArray(imageUrl)) {
+        validationErrors.push('Image URL must be an array');
+    }
+    
+    if (validationErrors.length > 0) {
+        return res.status(400).json({ error: validationErrors.join(', ') });
     }
 
     try {
@@ -682,12 +719,12 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
         const insertData = {
             name, 
             description, 
-            image_url: imageUrl, 
+            image_urls: Array.isArray(imageUrl) ? imageUrl : [imageUrl], // Convert to array format
             price, 
             seller_email: sellerEmail, 
             city_name: cityName, 
             sold: false,
-            isrehome: finalIsRehome,
+            is_rehome: finalIsRehome, // Fixed field name
             category: category || null,
             subcategory: subcategory || null,
             condition_rating: conditionRating || null,
@@ -1072,129 +1109,40 @@ app.put('/api/projects/:projectId', async (req, res) => {
     }
 });
 
-// Helper functions
-const generateToken = (user) => {
-    return jwt.sign(
-        { id: user.id, email: user.email, role: user.role },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRES_IN }
-    );
-};
+// ==================== LEGAL ENDPOINTS ====================
 
-// List of admin email addresses
-const ADMIN_EMAILS = [
-    'muhammadibnerafiq@gmail.com',
-    'testnewuser12345@gmail.com', // Your test account
-    'egzmanagement@gmail.com',
-    'samuel.stroehle8@gmail.com',
-    'info@rehomebv.com'
-];
+// Terms of Service endpoint
+app.get('/api/legal/terms-of-service', (req, res) => {
+    // Redirect to your terms of service document
+    res.redirect('https://rehomebv.com/terms');
+});
 
-// Simplified admin authentication using regular Supabase auth + email whitelist
-const authenticateAdmin = async (req, res, next) => {
-    const authHeader = req.headers.authorization || "";
-    const token = authHeader.split(" ")[1];
+// Privacy Policy endpoint  
+app.get('/api/legal/privacy-policy', (req, res) => {
+    // Redirect to your privacy policy document
+    res.redirect('https://rehomebv.com/privacy');
+});
 
-    if (!token) {
-        return res.status(401).json({ success: false, error: "Authentication token is required" });
-    }
+// Accept Terms endpoint
+app.post('/api/legal/accept-terms', authenticateUser, async (req, res) => {
+    const { userId, acceptedAt, termsVersion, privacyVersion } = req.body;
+    const userEmail = req.user.email;
 
     try {
-        // Use regular Supabase auth to verify the token
-        const { data: user, error } = await supabaseClient.auth.getUser(token);
-
-        if (error || !user || !user.user) {
-            return res.status(403).json({ success: false, error: "Invalid token or user not found" });
-        }
-
-        // Check if user email is in admin list
-        if (!ADMIN_EMAILS.includes(user.user.email)) {
-            return res.status(403).json({ success: false, error: "Admin access required" });
-        }
-
-        req.user = user.user;
-        next();
-    } catch (error) {
-        console.error("Authentication Error:", error);
-        return res.status(403).json({ success: false, error: "Invalid token" });
+        // Log the terms acceptance (you can create a table for this if needed)
+        console.log(`User ${userEmail} (${userId}) accepted terms version ${termsVersion} at ${acceptedAt}`);
+        
+        // For now, just return success. You can implement database logging if needed
+        res.status(200).json({ 
+            success: true, 
+            message: 'Terms acceptance recorded successfully',
+            timestamp: new Date().toISOString()
+        });
+    } catch (err) {
+        console.error('Error recording terms acceptance:', err);
+        res.status(500).json({ error: 'Failed to record terms acceptance' });
     }
-};
-
-// Audit logging middleware
-const auditLog = async (req, res, next) => {
-    if (req.user && req.method !== 'GET') {
-        const originalSend = res.send;
-        res.send = function(data) {
-            // Log after successful operation
-            if (res.statusCode < 400) {
-                supabaseClient.from('audit_logs').insert({
-                    admin_id: req.user.id,
-                    action: `${req.method} ${req.path}`,
-                    table_name: req.path.split('/')[2] || 'unknown',
-                    record_id: req.params.id || 'new',
-                    old_values: req.oldValues || null,
-                    new_values: req.body || null
-                }).then(() => {}).catch(console.error);
-            }
-            originalSend.call(this, data);
-        };
-    }
-    next();
-};
-
-// Validation schemas
-const furnitureItemSchema = Joi.object({
-    name: Joi.string().required().max(255),
-    category: Joi.string().required().max(100),
-    points: Joi.number().positive().required()
 });
-
-const cityBaseChargeSchema = Joi.object({
-    cityName: Joi.string().required().max(100),
-    normal: Joi.number().positive().required(),
-    cityDay: Joi.number().positive().required(),
-    dayOfWeek: Joi.number().integer().min(1).max(7).required()
-});
-
-const cityDayDataSchema = Joi.object({
-    cityName: Joi.string().required().max(100),
-    days: Joi.array().items(Joi.string()).required()
-});
-
-const adminLoginSchema = Joi.object({
-    email: Joi.string().email().required(),
-    password: Joi.string().required()
-});
-
-const pricingCalculationSchema = Joi.object({
-    serviceType: Joi.string().valid('house-moving', 'item-transport').required(),
-    pickupLocation: Joi.string().required(),
-    dropoffLocation: Joi.string().required(),
-    selectedDate: Joi.string().required(),
-    isDateFlexible: Joi.boolean().required(),
-    itemQuantities: Joi.object().required(),
-    floorPickup: Joi.number().integer().min(0).required(),
-    floorDropoff: Joi.number().integer().min(0).required(),
-    elevatorPickup: Joi.boolean().required(),
-    elevatorDropoff: Joi.boolean().required(),
-    assemblyItems: Joi.object().required(),
-    extraHelperItems: Joi.object().required(),
-    isStudent: Joi.boolean().required(),
-    hasStudentId: Joi.boolean().required(),
-    isEarlyBooking: Joi.boolean().optional()
-});
-
-// Routes
-
-// Health check
-app.get("/api/health-check", (req, res) => {
-    res.json({ success: true, message: "ReHome Pricing System API running successfully 🚀" });
-});
-
-// ==================== AUTHENTICATION ENDPOINTS ====================
-
-// Note: Admin authentication now uses regular Supabase auth + email whitelist
-// No separate admin login/logout endpoints needed
 
 // ==================== FURNITURE ITEMS ENDPOINTS ====================
 
