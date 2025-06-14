@@ -49,7 +49,7 @@ const upload = multer({ storage: storage });
 
 // List of admin email addresses - keep in sync with other admin files
 const ADMIN_EMAILS = [
-  'muhammadibnerafiq@gmail.com',
+  'muhammadibnerafiq123@gmail.com',
   'testnewuser12345@gmail.com',
   'egzmanagement@gmail.com',
   'samuel.stroehle8@gmail.com',
@@ -298,6 +298,51 @@ app.post("/api/auth/signup", async (req, res) => {
     } catch (error) {
         console.error("Error in signup:", error.message);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Google OAuth authentication
+app.post("/api/auth/google", async (req, res) => {
+    const { access_token } = req.body;
+
+    if (!access_token) {
+        return res.status(400).json({ error: "Access token is required" });
+    }
+
+    try {
+        console.log('Processing Google OAuth token...');
+        
+        // Get user data from Supabase using the access token
+        const { data: userData, error: userError } = await supabaseClient.auth.getUser(access_token);
+
+        if (userError) {
+            console.error('Error getting user from token:', userError);
+            return res.status(401).json({ error: "Invalid access token" });
+        }
+
+        if (!userData.user) {
+            return res.status(401).json({ error: "No user found" });
+        }
+
+        const { user } = userData;
+        console.log('Google OAuth user:', user.email);
+
+        // Return user data and access token
+        res.status(200).json({
+            message: "Google authentication successful",
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.user_metadata?.name || user.email,
+                avatar_url: user.user_metadata?.avatar_url,
+                provider: 'google'
+            },
+            accessToken: access_token
+        });
+
+    } catch (error) {
+        console.error("Error in Google auth:", error);
+        res.status(500).json({ error: error.message || "Internal server error" });
     }
 });
 
