@@ -47,6 +47,103 @@ app.use(json()); // for parsing application/json
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
+// List of admin email addresses - keep in sync with other admin files
+const ADMIN_EMAILS = [
+  'muhammadibnerafiq@gmail.com',
+  'testnewuser12345@gmail.com',
+  'egzmanagement@gmail.com',
+  'samuel.stroehle8@gmail.com',
+  'info@rehomebv.com'
+];
+
+// Helper function to check if user is admin
+const isAdmin = (userEmail) => {
+  return ADMIN_EMAILS.includes(userEmail);
+};
+
+// Admin authentication middleware
+const authenticateAdmin = async (req, res, next) => {
+    try {
+        const authHeader = req.headers.authorization || "";
+        const token = authHeader.split(" ")[1];
+
+        if (!token) {
+            return res.status(401).json({ success: false, error: "Authentication token is required" });
+        }
+
+        const { data: user, error } = await supabaseClient.auth.getUser(token);
+
+        if (error || !user || !user.user) {
+            return res.status(403).json({ success: false, error: "Invalid token or user not found" });
+        }
+
+        if (!isAdmin(user.user.email)) {
+            return res.status(403).json({ success: false, error: "Admin access required" });
+        }
+
+        req.user = user.user;
+        next();
+    } catch (error) {
+        console.error("Admin authentication error:", error);
+        return res.status(403).json({ success: false, error: "Authentication failed" });
+    }
+};
+
+// Audit logging middleware
+const auditLog = async (req, res, next) => {
+    try {
+        const { method, originalUrl, body, params, query } = req;
+        const userEmail = req.user ? req.user.email : 'anonymous';
+        const timestamp = new Date().toISOString();
+        
+        const auditData = {
+            timestamp,
+            user_email: userEmail,
+            action: `${method} ${originalUrl}`,
+            resource_type: 'api_endpoint',
+            resource_id: params.id || null,
+            old_values: req.oldValues || null,
+            new_values: method === 'POST' || method === 'PUT' ? body : null,
+            metadata: { params, query }
+        };
+
+        // Log to console for now (you can implement database logging later)
+        console.log('AUDIT LOG:', JSON.stringify(auditData, null, 2));
+        
+        next();
+    } catch (error) {
+        console.error("Audit logging error:", error);
+        next(); // Continue even if audit logging fails
+    }
+};
+
+// Validation schemas using Joi
+const furnitureItemSchema = Joi.object({
+    name: Joi.string().required(),
+    category: Joi.string().required(),
+    material: Joi.string(),
+    dimensions: Joi.string(),
+    weight: Joi.number(),
+    base_points: Joi.number().required(),
+    price_range_min: Joi.number(),
+    price_range_max: Joi.number(),
+    description: Joi.string(),
+    image_url: Joi.string().uri(),
+    is_active: Joi.boolean().default(true)
+});
+
+const cityBaseChargeSchema = Joi.object({
+    cityName: Joi.string().required(),
+    normal: Joi.number().required(),
+    cityDay: Joi.number().required(),
+    dayOfWeek: Joi.string().valid('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday').required()
+});
+
+const cityDayDataSchema = Joi.object({
+    cityName: Joi.string().required(),
+    days: Joi.array().items(Joi.string()).required()
+});
+
 app.post("/api/mollie", async (req, res) => {
 const amount = req.body.amount; // Get the amount from the request
   
