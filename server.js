@@ -798,7 +798,7 @@ app.post('/api/furniture/sold/:id', authenticateUser, async (req, res) => {
             .from('marketplace_furniture')
             .select('*')
             .eq('id', furnitureId)
-            .single(); // Expect only one result (or null)
+            .single();
 
         if (fetchError) {
             console.error('Error fetching furniture item:', fetchError);
@@ -1766,6 +1766,307 @@ app.get("/api/audit-logs", authenticateAdmin, async (req, res) => {
     } catch (error) {
         console.error("Get audit logs error:", error);
         res.status(500).json({ success: false, error: "Internal server error" });
+    }
+});
+
+// --------------------  Bidding System Routes --------------------
+
+// Get all bids for a specific item
+app.get('/api/bids/:itemId', async (req, res) => {
+    try {
+        const itemIdStr = String(req.params.itemId);
+        
+        const { data, error } = await supabase
+            .from('marketplace_bids')
+            .select('*')
+            .eq('item_id', itemIdStr)
+            .order('bid_amount', { ascending: false });
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (error) {
+        console.error('Error fetching bids:', error);
+        res.status(500).json({ error: 'Failed to fetch bids' });
+    }
+});
+
+// Get highest bid for an item
+app.get('/api/bids/:itemId/highest', async (req, res) => {
+    try {
+        const itemIdStr = String(req.params.itemId);
+        
+        const { data, error } = await supabase
+            .from('marketplace_bids')
+            .select('*')
+            .eq('item_id', itemIdStr)
+            .eq('status', 'approved')
+            .eq('is_highest_bid', true)
+            .single();
+
+        if (error && error.code !== 'PGRST116') throw error;
+        res.json(data || null);
+    } catch (error) {
+        console.error('Error fetching highest bid:', error);
+        res.status(500).json({ error: 'Failed to fetch highest bid' });
+    }
+});
+
+// Get user's bid for a specific item
+app.get('/api/bids/:itemId/user/:userEmail', async (req, res) => {
+    try {
+        const itemIdStr = String(req.params.itemId);
+        const { userEmail } = req.params;
+        
+        const { data, error } = await supabase
+            .from('marketplace_bids')
+            .select('*')
+            .eq('item_id', itemIdStr)
+            .eq('bidder_email', userEmail)
+            .in('status', ['pending', 'approved'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (error && error.code !== 'PGRST116') throw error;
+        res.json(data || null);
+    } catch (error) {
+        console.error('Error fetching user bid:', error);
+        res.status(500).json({ error: 'Failed to fetch user bid' });
+    }
+});
+
+// Place a new bid
+app.post('/api/bids', async (req, res) => {
+    try {
+        const { item_id, bidder_email, bidder_name, bid_amount, status } = req.body;
+
+        if (!item_id || !bidder_email || !bidder_name || !bid_amount) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        // Convert item_id to string to match UUID format in database
+        const itemIdStr = String(item_id);
+
+        // Check if user already has a bid for this item
+        const { data: existingBids, error: checkError } = await supabase
+            .from('marketplace_bids')
+            .select('*')
+            .eq('item_id', itemIdStr)
+            .eq('bidder_email', bidder_email)
+            .in('status', ['pending', 'approved']);
+
+        if (checkError) throw checkError;
+
+        // Check if there's already a higher bid
+        const { data: highestBid, error: highestBidError } = await supabase
+            .from('marketplace_bids')
+            .select('bid_amount')
+            .eq('item_id', itemIdStr)
+            .eq('status', 'approved')
+            .order('bid_amount', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (highestBidError && highestBidError.code !== 'PGRST116') {
+            throw highestBidError;
+        }
+
+        if (highestBid && bid_amount <= highestBid.bid_amount) {
+            return res.status(400).json({ 
+                error: `Your bid must be higher than the current highest bid of €${highestBid.bid_amount}` 
+            });
+        }
+
+        // If user has an existing bid, update it instead of creating new one
+        if (existingBids && existingBids.length > 0) {
+            const { data, error } = await supabase
+                .from('marketplace_bids')
+                .update({
+                    bid_amount: bid_amount,
+                    status: 'pending',
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', existingBids[0].id)
+                .select()
+                .single();
+
+            if (error) throw error;
+            res.json({ success: true, data, message: 'Bid updated successfully' });
+        } else {
+            // Create new bid
+            const { data, error } = await supabase
+                .from('marketplace_bids')
+                .insert([{
+                    item_id: itemIdStr,
+                    bidder_email,
+                    bidder_name,
+                    bid_amount,
+                    status: status || 'pending',
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                }])
+                .select()
+                .single();
+
+            if (error) throw error;
+            res.json({ success: true, data, message: 'Bid placed successfully' });
+        }
+    } catch (error) {
+        console.error('Error placing bid:', error);
+        res.status(500).json({ error: 'Failed to place bid' });
+    }
+});
+
+// Check if user can add item to cart
+app.get('/api/bids/:itemId/cart-eligibility/:userEmail', async (req, res) => {
+    try {
+        const itemIdStr = String(req.params.itemId);
+        const { userEmail } = req.params;
+        
+        // Get user's bid for this item
+        const { data: userBid, error: userBidError } = await supabase
+            .from('marketplace_bids')
+            .select('*')
+            .eq('item_id', itemIdStr)
+            .eq('bidder_email', userEmail)
+            .in('status', ['pending', 'approved'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (userBidError && userBidError.code !== 'PGRST116') throw userBidError;
+        
+        if (!userBid) {
+            return res.json({ canAdd: false, message: 'You need to place a bid first before adding to cart' });
+        }
+
+        if (userBid.status === 'pending') {
+            return res.json({ canAdd: false, message: 'Your bid is pending approval. Please wait for admin confirmation.' });
+        }
+
+        if (userBid.status === 'rejected') {
+            return res.json({ canAdd: false, message: 'Your bid was rejected. Please place a new bid.' });
+        }
+
+        if (userBid.status === 'outbid') {
+            return res.json({ canAdd: false, message: 'You have been outbid. Please place a higher bid to proceed.' });
+        }
+
+        if (userBid.status === 'approved' && userBid.is_highest_bid) {
+            return res.json({ canAdd: true, message: 'You can proceed to checkout!' });
+        }
+
+        res.json({ canAdd: false, message: 'You do not have the highest bid for this item.' });
+    } catch (error) {
+        console.error('Error checking cart eligibility:', error);
+        res.status(500).json({ error: 'Error checking bid status. Please try again.' });
+    }
+});
+
+// Get all bids by user
+app.get('/api/bids/user/:userEmail', async (req, res) => {
+    try {
+        const { userEmail } = req.params;
+        
+        const { data, error } = await supabase
+            .from('marketplace_bids')
+            .select(`
+                *,
+                marketplace_furniture (
+                    name,
+                    image_url,
+                    price,
+                    seller_email
+                )
+            `)
+            .eq('bidder_email', userEmail)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (error) {
+        console.error('Error fetching user bids:', error);
+        res.status(500).json({ error: 'Failed to fetch user bids' });
+    }
+});
+
+// Admin: Get all bids
+app.get('/api/admin/bids', authenticateUser, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('marketplace_bids')
+            .select(`
+                *,
+                marketplace_furniture (
+                    name,
+                    image_url,
+                    price,
+                    seller_email
+                )
+            `)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (error) {
+        console.error('Error fetching all bids:', error);
+        res.status(500).json({ error: 'Failed to fetch bids' });
+    }
+});
+
+// Admin: Approve a bid
+app.put('/api/admin/bids/:bidId/approve', authenticateUser, async (req, res) => {
+    try {
+        const { bidId } = req.params;
+        const { admin_notes } = req.body;
+        const adminEmail = req.user.email;
+
+        const { data, error } = await supabase
+            .from('marketplace_bids')
+            .update({
+                status: 'approved',
+                approved_by: adminEmail,
+                approved_at: new Date().toISOString(),
+                admin_notes: admin_notes || null,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', bidId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json({ success: true, data, message: 'Bid approved successfully' });
+    } catch (error) {
+        console.error('Error approving bid:', error);
+        res.status(500).json({ error: 'Failed to approve bid' });
+    }
+});
+
+// Admin: Reject a bid
+app.put('/api/admin/bids/:bidId/reject', authenticateUser, async (req, res) => {
+    try {
+        const { bidId } = req.params;
+        const { admin_notes } = req.body;
+        const adminEmail = req.user.email;
+
+        const { data, error } = await supabase
+            .from('marketplace_bids')
+            .update({
+                status: 'rejected',
+                approved_by: adminEmail,
+                approved_at: new Date().toISOString(),
+                admin_notes: admin_notes || null,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', bidId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json({ success: true, data, message: 'Bid rejected successfully' });
+    } catch (error) {
+        console.error('Error rejecting bid:', error);
+        res.status(500).json({ error: 'Failed to reject bid' });
     }
 });
 
