@@ -986,6 +986,14 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
         const isAdminUser = ADMIN_EMAILS.includes(sellerEmail);
         const finalIsRehome = isAdminUser ? true : (isRehome || false);
         
+        console.log('=== FURNITURE CREATION DEBUG ===');
+        console.log('📋 Seller email:', sellerEmail);
+        console.log('📋 Pricing type:', pricingType);
+        console.log('📋 Price:', price);
+        console.log('📋 Starting bid:', startingBid);
+        console.log('📋 Is admin:', isAdminUser);
+        console.log('📋 Final isRehome:', finalIsRehome);
+        
         const insertData = {
             name, 
             description, 
@@ -1008,7 +1016,7 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
             longitude: longitude && !isNaN(parseFloat(longitude)) ? parseFloat(longitude) : null
         };
 
-        console.log('Data to insert:', JSON.stringify(insertData, null, 2));
+        console.log('📋 Final insert data:', JSON.stringify(insertData, null, 2));
 
         const { data, error } = await supabase
             .from('marketplace_furniture')
@@ -1019,6 +1027,44 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
         console.log('Supabase insert response - Error:', error);
         
         if (error) {
+            // Handle pricing constraint violation for free items
+            if (error.code === '23514' && error.message.includes('check_fixed_price') && pricingType === 'free') {
+                console.log('⚠️ Pricing constraint violation for free item, trying fallback approach');
+                
+                // Try to create with negotiable pricing instead as a fallback
+                const fallbackData = {
+                    ...insertData,
+                    pricing_type: 'negotiable',
+                    price: null, // Set to null for negotiable
+                    starting_bid: null
+                };
+                
+                console.log('🔄 Attempting fallback with negotiable pricing:', JSON.stringify(fallbackData, null, 2));
+                
+                const { data: fallbackResult, error: fallbackError } = await supabase
+                    .from('marketplace_furniture')
+                    .insert([fallbackData])
+                    .select();
+                
+                if (fallbackError) {
+                    console.error('❌ Fallback also failed:', fallbackError);
+                    return res.status(500).json({ 
+                        error: 'Failed to create listing', 
+                        details: `Original: ${error.message}. Fallback: ${fallbackError.message}`,
+                        code: error.code,
+                        note: 'Please run the database migration to support free pricing'
+                    });
+                }
+                
+                console.log('✅ Free item created using negotiable pricing fallback');
+                return res.status(201).json({
+                    ...fallbackResult[0],
+                    _fallback_used: true,
+                    _original_pricing_type: 'free',
+                    _note: 'Created as negotiable due to missing database migration. Please run migration to enable free pricing.'
+                });
+            }
+            
             console.error('Supabase error creating furniture:', error);
             return res.status(500).json({ 
                 error: 'Failed to create listing', 
