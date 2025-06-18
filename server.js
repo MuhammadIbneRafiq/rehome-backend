@@ -805,6 +805,15 @@ app.put('/api/furniture/:id', async (req, res) => {
         if (latitude !== undefined) updateData.latitude = latitude;
         if (longitude !== undefined) updateData.longitude = longitude;
 
+        // Handle pricing based on type
+        if (pricingType === 'free') {
+            updateData.price = 0;
+        } else if (pricingType === 'fixed' && price !== undefined) {
+            updateData.price = price;
+        } else if (pricingType === 'negotiable' || pricingType === 'bidding') {
+            updateData.price = null;
+        }
+
         const { data, error } = await supabase
             .from('marketplace_furniture')
             .update(updateData)
@@ -960,6 +969,8 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
         validationErrors.push('Valid starting bid is required for auction pricing');
     }
     
+    // Free pricing type doesn't require price validation
+    
     // Image validation (allow empty array if no images)
     if (imageUrl && !Array.isArray(imageUrl)) {
         validationErrors.push('Image URL must be an array');
@@ -979,7 +990,8 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
             name, 
             description, 
             image_urls: Array.isArray(imageUrl) ? imageUrl : (imageUrl ? [imageUrl] : []), // Handle both array and single URL
-            price: pricingType === 'fixed' ? parseFloat(price) : null, 
+            price: pricingType === 'fixed' ? parseFloat(price) : 
+                   pricingType === 'free' ? 0 : null, 
             seller_email: sellerEmail, 
             city_name: cityName, 
             sold: false,
