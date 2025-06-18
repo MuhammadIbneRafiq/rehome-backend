@@ -426,17 +426,39 @@ app.get('/api/furniture', async (req, res) => {
         console.log('supabaseClient available:', !!supabaseClient);
         console.log('supabase available:', !!supabase);
         
+        // Get pagination parameters
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const offset = (page - 1) * limit;
+        
+        console.log('📋 Pagination params:', { page, limit, offset });
+        
         if (!supabase) {
             console.error('Supabase client is not initialized!');
             return res.status(500).json({ error: 'Supabase client not initialized' });
         }
 
         console.log('Fetching furniture from Supabase...');
+        
+        // Get total count first
+        const { count, error: countError } = await supabase
+            .from('marketplace_furniture')
+            .select('*', { count: 'exact', head: true })
+            .eq('sold', false); // Only non-sold items
+
+        if (countError) {
+            console.log('Error getting count:', countError);
+        }
+
+        // Get paginated data ordered by newest first
         const { data, error } = await supabase
             .from('marketplace_furniture')
-            .select('*');
+            .select('*')
+            .eq('sold', false) // Only show available items
+            .order('created_at', { ascending: false }) // Newest first
+            .range(offset, offset + limit - 1); // Pagination
 
-        console.log('Supabase response - Data:', data);
+        console.log('Supabase response - Data count:', data?.length);
         console.log('Supabase response - Error:', error);
 
         if (error) {
@@ -456,7 +478,8 @@ app.get('/api/furniture', async (req, res) => {
                         seller_email: "seller@example.com",
                         city_name: "Amsterdam",
                         sold: false,
-                        isrehome: true
+                        isrehome: true,
+                        pricing_type: 'fixed'
                     },
                     {
                         id: 2,
@@ -468,22 +491,35 @@ app.get('/api/furniture', async (req, res) => {
                         seller_email: "user@example.com",
                         city_name: "Rotterdam",
                         sold: false,
-                        isrehome: false
+                        isrehome: false,
+                        pricing_type: 'fixed'
                     },
                     {
                         id: 3,
-                        name: "Office Chair",
-                        description: "Ergonomic office chair with lumbar support",
+                        name: "Free Chair",
+                        description: "Free office chair - pickup only",
                         image_url: ["https://images.unsplash.com/photo-1541558869434-2840d308329a?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"],
-                        price: 75,
+                        price: 0,
                         created_at: new Date().toISOString(),
                         seller_email: "office@example.com",
                         city_name: "Utrecht",
                         sold: false,
-                        isrehome: true
+                        isrehome: false,
+                        pricing_type: 'free'
                     }
                 ];
-                return res.json(mockData);
+                
+                return res.json({
+                    data: mockData.slice(offset, offset + limit),
+                    pagination: {
+                        currentPage: page,
+                        totalPages: Math.ceil(mockData.length / limit),
+                        totalItems: mockData.length,
+                        itemsPerPage: limit,
+                        hasNextPage: page < Math.ceil(mockData.length / limit),
+                        hasPreviousPage: page > 1
+                    }
+                });
             }
             
             return res.status(500).json({ 
@@ -499,8 +535,27 @@ app.get('/api/furniture', async (req, res) => {
             image_url: item.image_urls // Also ensure consistency for image field
         }));
 
-        console.log('Sending successful response with mapped data:', mappedData);
-        res.json(mappedData);
+        const totalItems = count || 0;
+        const totalPages = Math.ceil(totalItems / limit);
+
+        const response = {
+            data: mappedData,
+            pagination: {
+                currentPage: page,
+                totalPages,
+                totalItems,
+                itemsPerPage: limit,
+                hasNextPage: page < totalPages,
+                hasPreviousPage: page > 1
+            }
+        };
+
+        console.log('✅ Sending paginated response:', {
+            itemCount: mappedData.length,
+            pagination: response.pagination
+        });
+        
+        res.json(response);
     } catch (err) {
         console.error('Caught exception in furniture endpoint:', err);
         console.error('Error stack:', err.stack);
