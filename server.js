@@ -2570,23 +2570,47 @@ app.put('/api/furniture/:itemId/status', authenticateUser, async (req, res) => {
         const { status } = req.body;
         const userEmail = req.user.email;
 
+        console.log('=== STATUS UPDATE DEBUG ===');
+        console.log('Item ID:', itemId);
+        console.log('New status:', status);
+        console.log('User email:', userEmail);
+        console.log('Request body:', req.body);
+
         if (!['available', 'reserved', 'sold'].includes(status)) {
+            console.log('❌ Invalid status provided:', status);
             return res.status(400).json({ error: 'Invalid status. Must be available, reserved, or sold' });
         }
 
         // Check if user owns the item or is admin
+        console.log('🔍 Fetching item to check ownership...');
         const { data: item, error: fetchError } = await supabase
             .from('marketplace_furniture')
-            .select('seller_email')
+            .select('seller_email, status, name')
             .eq('id', itemId)
             .single();
 
-        if (fetchError) throw fetchError;
+        if (fetchError) {
+            console.log('❌ Error fetching item:', fetchError);
+            throw fetchError;
+        }
+
+        if (!item) {
+            console.log('❌ Item not found');
+            return res.status(404).json({ error: 'Item not found' });
+        }
+
+        console.log('📋 Item details:', { 
+            name: item.name, 
+            currentStatus: item.status, 
+            sellerEmail: item.seller_email 
+        });
 
         if (item.seller_email !== userEmail && !isAdmin(userEmail)) {
+            console.log('❌ Access denied - not owner or admin');
             return res.status(403).json({ error: 'You can only update your own listings' });
         }
 
+        console.log('✅ Access granted, updating status...');
         const { data, error } = await supabase
             .from('marketplace_furniture')
             .update({
@@ -2598,7 +2622,12 @@ app.put('/api/furniture/:itemId/status', authenticateUser, async (req, res) => {
             .select()
             .single();
 
-        if (error) throw error;
+        if (error) {
+            console.log('❌ Error updating status:', error);
+            throw error;
+        }
+
+        console.log('✅ Status updated successfully:', data);
 
         // Map database field names to frontend expected field names
         const mappedData = {
@@ -2609,8 +2638,12 @@ app.put('/api/furniture/:itemId/status', authenticateUser, async (req, res) => {
 
         res.json({ success: true, data: mappedData, message: `Item status updated to ${status}` });
     } catch (error) {
-        console.error('Error updating item status:', error);
-        res.status(500).json({ error: 'Failed to update item status' });
+        console.error('❌ Error updating item status:', error);
+        res.status(500).json({ 
+            error: 'Failed to update item status', 
+            details: error.message,
+            code: error.code 
+        });
     }
 });
 
@@ -2653,9 +2686,39 @@ const migrateStatusField = async () => {
     }
 };
 
+// Database migration for free pricing type support
+const migratePricingConstraint = async () => {
+    try {
+        // Drop and recreate the pricing constraint to support 'free' type
+        await supabase.rpc('exec', {
+            sql: `
+                DO $$ 
+                BEGIN
+                    -- Drop the existing constraint if it exists
+                    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='check_fixed_price' AND table_name='marketplace_furniture') THEN
+                        ALTER TABLE marketplace_furniture DROP CONSTRAINT check_fixed_price;
+                    END IF;
+                    
+                    -- Add the new constraint that supports 'free' pricing type
+                    ALTER TABLE marketplace_furniture ADD CONSTRAINT check_fixed_price CHECK (
+                        (pricing_type = 'fixed' AND price IS NOT NULL AND price > 0 AND starting_bid IS NULL) OR
+                        (pricing_type = 'bidding' AND starting_bid IS NOT NULL AND starting_bid > 0 AND price IS NULL) OR
+                        (pricing_type = 'negotiable' AND price IS NULL AND starting_bid IS NULL) OR
+                        (pricing_type = 'free' AND price = 0 AND starting_bid IS NULL)
+                    );
+                END $$;
+            `
+        });
+        console.log('Pricing constraint migration completed - free pricing type now supported');
+    } catch (error) {
+        console.log('Pricing constraint migration failed:', error.message);
+    }
+};
+
 // Run migration on startup
 if (supabase) {
     migrateStatusField();
+    migratePricingConstraint();
 }
 
 export default app;
