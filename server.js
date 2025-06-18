@@ -2585,7 +2585,7 @@ app.put('/api/furniture/:itemId/status', authenticateUser, async (req, res) => {
         console.log('🔍 Fetching item to check ownership...');
         const { data: item, error: fetchError } = await supabase
             .from('marketplace_furniture')
-            .select('seller_email, status, name')
+            .select('seller_email, sold, name')
             .eq('id', itemId)
             .single();
 
@@ -2601,7 +2601,7 @@ app.put('/api/furniture/:itemId/status', authenticateUser, async (req, res) => {
 
         console.log('📋 Item details:', { 
             name: item.name, 
-            currentStatus: item.status, 
+            currentSold: item.sold, 
             sellerEmail: item.seller_email 
         });
 
@@ -2611,20 +2611,70 @@ app.put('/api/furniture/:itemId/status', authenticateUser, async (req, res) => {
         }
 
         console.log('✅ Access granted, updating status...');
+        
+        // Check if status column exists, fallback to sold field if it doesn't
+        const updateData = {
+            sold: status === 'sold', // Always update sold field for backward compatibility
+            updated_at: new Date().toISOString()
+        };
+
+        // Try to update with status column first
+        try {
+            updateData.status = status;
+            console.log('🔄 Attempting to update with status column...');
+        } catch (e) {
+            console.log('⚠️ Status column may not exist, using sold field only');
+        }
+
         const { data, error } = await supabase
             .from('marketplace_furniture')
-            .update({
-                status: status,
-                sold: status === 'sold', // Keep sold field in sync for backward compatibility
-                updated_at: new Date().toISOString()
-            })
+            .update(updateData)
             .eq('id', itemId)
             .select()
             .single();
 
         if (error) {
-            console.log('❌ Error updating status:', error);
-            throw error;
+            // If status column doesn't exist, try without it
+            if (error.code === '42703' && error.message.includes('status')) {
+                console.log('⚠️ Status column does not exist, updating sold field only');
+                
+                const fallbackData = {
+                    sold: status === 'sold',
+                    updated_at: new Date().toISOString()
+                };
+                
+                const { data: fallbackResult, error: fallbackError } = await supabase
+                    .from('marketplace_furniture')
+                    .update(fallbackData)
+                    .eq('id', itemId)
+                    .select()
+                    .single();
+
+                if (fallbackError) {
+                    console.log('❌ Error updating with fallback:', fallbackError);
+                    throw fallbackError;
+                }
+
+                console.log('✅ Status updated using sold field fallback');
+                
+                // Add status to response for frontend compatibility
+                const fallbackMappedData = {
+                    ...fallbackResult,
+                    status: fallbackResult.sold ? 'sold' : 'available', // Map sold to status
+                    isrehome: fallbackResult.is_rehome,
+                    image_url: fallbackResult.image_urls
+                };
+
+                return res.json({ 
+                    success: true, 
+                    data: fallbackMappedData, 
+                    message: `Item status updated to ${status}`,
+                    note: 'Updated using sold field - please run database migration for full status support'
+                });
+            } else {
+                console.log('❌ Error updating status:', error);
+                throw error;
+            }
         }
 
         console.log('✅ Status updated successfully:', data);
@@ -2632,8 +2682,8 @@ app.put('/api/furniture/:itemId/status', authenticateUser, async (req, res) => {
         // Map database field names to frontend expected field names
         const mappedData = {
             ...data,
-            isrehome: data.is_rehome, // Map is_rehome to isrehome for frontend
-            image_url: data.image_urls // Also ensure consistency for image field
+            isrehome: data.is_rehome,
+            image_url: data.image_urls
         };
 
         res.json({ success: true, data: mappedData, message: `Item status updated to ${status}` });
@@ -2666,53 +2716,33 @@ app.post('/api/furniture/debug', authenticateUser, async (req, res) => {
 // Database migration for status field (run once)
 const migrateStatusField = async () => {
     try {
-        // Add status column if it doesn't exist
-        await supabase.rpc('exec', {
-            sql: `
-                DO $$ 
-                BEGIN
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='marketplace_furniture' AND column_name='status') THEN
-                        ALTER TABLE marketplace_furniture ADD COLUMN status VARCHAR(20) DEFAULT 'available' CHECK (status IN ('available', 'reserved', 'sold'));
-                        
-                        -- Update existing data: set status based on sold field
-                        UPDATE marketplace_furniture SET status = CASE WHEN sold THEN 'sold' ELSE 'available' END;
-                    END IF;
-                END $$;
-            `
-        });
-        console.log('Status field migration completed');
+        console.log('🔄 Checking if status column exists...');
+        
+        // Simple check - try to select status column
+        const { data, error } = await supabase
+            .from('marketplace_furniture')
+            .select('status')
+            .limit(1);
+
+        if (error && error.code === '42703') {
+            console.log('❌ Status column does not exist!');
+            console.log('📋 MANUAL MIGRATION REQUIRED:');
+            console.log('📋 Please run the SQL in backend/db/add_status_column.sql in your Supabase dashboard');
+            console.log('📋 This will add the status column and update the pricing constraint');
+        } else if (!error) {
+            console.log('✅ Status column exists');
+        } else {
+            console.log('⚠️ Error checking status column:', error.message);
+        }
     } catch (error) {
-        console.log('Status field migration already exists or failed:', error.message);
+        console.log('❌ Migration check failed:', error.message);
     }
 };
 
 // Database migration for free pricing type support
 const migratePricingConstraint = async () => {
-    try {
-        // Drop and recreate the pricing constraint to support 'free' type
-        await supabase.rpc('exec', {
-            sql: `
-                DO $$ 
-                BEGIN
-                    -- Drop the existing constraint if it exists
-                    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='check_fixed_price' AND table_name='marketplace_furniture') THEN
-                        ALTER TABLE marketplace_furniture DROP CONSTRAINT check_fixed_price;
-                    END IF;
-                    
-                    -- Add the new constraint that supports 'free' pricing type
-                    ALTER TABLE marketplace_furniture ADD CONSTRAINT check_fixed_price CHECK (
-                        (pricing_type = 'fixed' AND price IS NOT NULL AND price > 0 AND starting_bid IS NULL) OR
-                        (pricing_type = 'bidding' AND starting_bid IS NOT NULL AND starting_bid > 0 AND price IS NULL) OR
-                        (pricing_type = 'negotiable' AND price IS NULL AND starting_bid IS NULL) OR
-                        (pricing_type = 'free' AND price = 0 AND starting_bid IS NULL)
-                    );
-                END $$;
-            `
-        });
-        console.log('Pricing constraint migration completed - free pricing type now supported');
-    } catch (error) {
-        console.log('Pricing constraint migration failed:', error.message);
-    }
+    console.log('📋 Pricing constraint migration is included in the manual SQL script');
+    console.log('📋 Run backend/db/add_status_column.sql in Supabase to update constraints');
 };
 
 // Run migration on startup
