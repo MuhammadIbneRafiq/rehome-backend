@@ -18,6 +18,7 @@ import { Server } from 'socket.io';
 import http from 'http';
 import { createMollieClient } from '@mollie/api-client';
 import { authenticateUser } from './middleware/auth.js';
+import imageProcessingService from './services/imageProcessingService.js';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -915,7 +916,7 @@ app.delete('/api/furniture/:id', async (req, res) => {
     }
 });
 
-// 5. Image Upload Endpoint
+// 5. Image Upload Endpoint with Automatic Format Conversion
 app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
   try {
       if (!req.files || req.files.length === 0) {
@@ -924,7 +925,10 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
 
       const uploadedFiles = req.files;
       const imageUrls = [];
-      console.log('uplod', uploadedFiles)
+      const conversionResults = [];
+      
+      console.log(`Processing ${uploadedFiles.length} uploaded files`);
+      
       // Check if the bucket exists and is public
       const { data: bucketData, error: bucketError } = await supabaseClient.storage.getBucket('furniture-images');
       console.log('Bucket data:', bucketData);
@@ -934,34 +938,124 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
           return res.status(500).json({ error: 'Storage bucket not accessible', details: bucketError });
       }
 
-      for (const file of uploadedFiles) {
-          // Generate a unique filename
-          const fileExtension = file.originalname.split('.').pop();
-          const fileName = `${uuidv4()}.${fileExtension}`;
-
-          console.log('uploaded smth', fileExtension)
-          console.log('sdikf', fileName)
-
-          const fileObject = new File([file.buffer], fileName, { type: file.mimetype });
-          const { data: uploadData, error: uploadError } = await supabaseClient.storage
-            .from('furniture-images')
-            .upload(fileName, fileObject);
-
-          if (uploadError) {
-              console.error('Error uploading file:', uploadError);
-              return res.status(500).json({ error: 'Failed to upload image.', details: uploadError });
-          }
+      for (let i = 0; i < uploadedFiles.length; i++) {
+          const file = uploadedFiles[i];
+          console.log(`\n📸 Processing file ${i + 1}/${uploadedFiles.length}: ${file.originalname}`);
           
-          console.log('Upload successful:', uploadData);
-          const imageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/furniture-images/${fileName}`;
-          console.log('Generated image URL:', imageUrl);
-          imageUrls.push(imageUrl);
+          try {
+              // Check if the image format is supported
+              const isSupported = imageProcessingService.isImageFormatSupported(file.originalname);
+              console.log(`Format supported: ${isSupported} (${file.originalname})`);
+              
+              let finalBuffer = file.buffer;
+              let finalFilename = file.originalname;
+              let finalMimeType = file.mimetype;
+              
+              // Convert unsupported formats or optimize supported ones
+              if (!isSupported || file.originalname.toLowerCase().includes('.heic')) {
+                  console.log(`🔄 Converting/optimizing image: ${file.originalname}`);
+                  
+                  const conversionResult = await imageProcessingService.convertImageToWebFormat(
+                      file.buffer,
+                      file.originalname,
+                      {
+                          quality: 85,
+                          maxWidth: 1920,
+                          maxHeight: 1080,
+                          removeMetadata: true
+                      }
+                  );
+                  
+                  finalBuffer = conversionResult.buffer;
+                  finalFilename = conversionResult.filename;
+                  finalMimeType = conversionResult.mimeType;
+                  
+                  conversionResults.push({
+                      original: file.originalname,
+                      converted: finalFilename,
+                      originalFormat: conversionResult.originalFormat,
+                      outputFormat: conversionResult.outputFormat,
+                      originalSize: file.buffer.length,
+                      convertedSize: finalBuffer.length
+                  });
+                  
+                  console.log(`✅ Conversion completed: ${file.originalname} -> ${finalFilename}`);
+              } else {
+                  // Still optimize supported formats for better performance
+                  console.log(`🔧 Optimizing supported image: ${file.originalname}`);
+                  
+                  try {
+                      const optimizedBuffer = await imageProcessingService.processImageWithSharp(
+                          file.buffer,
+                          {
+                              quality: 85,
+                              maxWidth: 1920,
+                              maxHeight: 1080,
+                              removeMetadata: true
+                          }
+                      );
+                      
+                      finalBuffer = optimizedBuffer;
+                      finalFilename = `${uuidv4()}.${imageProcessingService.getFileExtension(file.originalname)}`;
+                      
+                      console.log(`✅ Optimization completed: ${file.originalname} -> ${finalFilename}`);
+                  } catch (optimizationError) {
+                      console.warn(`⚠️ Optimization failed, using original: ${optimizationError.message}`);
+                      finalFilename = `${uuidv4()}.${imageProcessingService.getFileExtension(file.originalname)}`;
+                  }
+              }
+
+              // Upload the processed image
+              console.log(`📤 Uploading: ${finalFilename} (${finalBuffer.length} bytes)`);
+              
+              const fileObject = new File([finalBuffer], finalFilename, { type: finalMimeType });
+              const { data: uploadData, error: uploadError } = await supabaseClient.storage
+                .from('furniture-images')
+                .upload(finalFilename, fileObject);
+
+              if (uploadError) {
+                  console.error('Error uploading processed file:', uploadError);
+                  return res.status(500).json({ 
+                      error: 'Failed to upload processed image.', 
+                      details: uploadError,
+                      file: finalFilename
+                  });
+              }
+              
+              console.log('Upload successful:', uploadData);
+              const imageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/furniture-images/${finalFilename}`;
+              console.log('Generated image URL:', imageUrl);
+              imageUrls.push(imageUrl);
+              
+          } catch (fileError) {
+              console.error(`Error processing file ${file.originalname}:`, fileError);
+              return res.status(500).json({ 
+                  error: `Failed to process image: ${file.originalname}`, 
+                  details: fileError.message 
+              });
+          }
       }
 
-      res.status(200).json({ imageUrls }); // Return an array of image URLs
+      console.log(`\n🎉 All ${uploadedFiles.length} files processed successfully!`);
+      
+      // Return response with conversion details
+      const response = { 
+          imageUrls,
+          totalFiles: uploadedFiles.length,
+          successCount: imageUrls.length
+      };
+      
+      // Include conversion details if any conversions were performed
+      if (conversionResults.length > 0) {
+          response.conversions = conversionResults;
+          console.log('Conversion summary:', conversionResults);
+      }
+      
+      res.status(200).json(response);
+      
   } catch (error) {
-      console.error('Error during upload:', error);
-      res.status(500).json({ error: 'Internal Server Error' });
+      console.error('Error during upload process:', error);
+      res.status(500).json({ error: 'Internal Server Error', details: error.message });
   }
 });
 
