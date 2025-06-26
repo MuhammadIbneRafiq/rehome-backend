@@ -192,6 +192,7 @@ import adminMarketplaceRoutes from './api/admin/marketplace.js';
 import adminCityPricesRoutes from './api/admin/city-prices.js';
 import adminPricingConfigsRoutes from './api/admin/pricing-configs.js';
 import adminPricingMultipliersRoutes from './api/admin/pricing-multipliers.js';
+import rehomeOrdersRoutes from './api/rehome-orders.js';
 
 // --------------------  Application Routes --------------------
 
@@ -206,6 +207,7 @@ app.use('/api/admin/marketplace', adminMarketplaceRoutes);
 app.use('/api/admin/city-prices', adminCityPricesRoutes);
 app.use('/api/admin/pricing-configs', adminPricingConfigsRoutes);
 app.use('/api/admin/pricing-multipliers', adminPricingMultipliersRoutes);
+app.use('/api/rehome-orders', rehomeOrdersRoutes);
 
 // Admin furniture-items endpoint (alias for marketplace furniture)
 app.get('/api/admin/furniture-items', authenticateAdmin, async (req, res) => {
