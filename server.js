@@ -953,11 +953,16 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
               let finalFilename = file.originalname;
               let finalMimeType = file.mimetype;
               
-              // Convert unsupported formats or optimize supported ones
+              // Always process images for optimization and format conversion
+              console.log(`🔄 Processing image: ${file.originalname} (Original size: ${(file.buffer.length / 1024 / 1024).toFixed(2)} MB)`);
+              
+              let conversionResult;
+              
+              // Convert unsupported formats (HEIC, etc.) or optimize all images
               if (!isSupported || file.originalname.toLowerCase().includes('.heic')) {
-                  console.log(`🔄 Converting/optimizing image: ${file.originalname}`);
+                  console.log(`🔄 Converting unsupported format: ${file.originalname}`);
                   
-                  const conversionResult = await imageProcessingService.convertImageToWebFormat(
+                  conversionResult = await imageProcessingService.convertImageToWebFormat(
                       file.buffer,
                       file.originalname,
                       {
@@ -967,45 +972,54 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
                           removeMetadata: true
                       }
                   );
-                  
-                  finalBuffer = conversionResult.buffer;
-                  finalFilename = conversionResult.filename;
-                  finalMimeType = conversionResult.mimeType;
-                  
-                  conversionResults.push({
-                      original: file.originalname,
-                      converted: finalFilename,
-                      originalFormat: conversionResult.originalFormat,
-                      outputFormat: conversionResult.outputFormat,
-                      originalSize: file.buffer.length,
-                      convertedSize: finalBuffer.length
-                  });
-                  
-                  console.log(`✅ Conversion completed: ${file.originalname} -> ${finalFilename}`);
               } else {
-                  // Still optimize supported formats for better performance
+                  // Optimize supported formats (JPEG, PNG, etc.) for better performance
                   console.log(`🔧 Optimizing supported image: ${file.originalname}`);
                   
-                  try {
-                      const optimizedBuffer = await imageProcessingService.processImageWithSharp(
-                          file.buffer,
-                          {
-                              quality: 85,
-                              maxWidth: 1920,
-                              maxHeight: 1080,
-                              removeMetadata: true
-                          }
-                      );
-                      
-                      finalBuffer = optimizedBuffer;
-                      finalFilename = `${uuidv4()}.${imageProcessingService.getFileExtension(file.originalname)}`;
-                      
-                      console.log(`✅ Optimization completed: ${file.originalname} -> ${finalFilename}`);
-                  } catch (optimizationError) {
-                      console.warn(`⚠️ Optimization failed, using original: ${optimizationError.message}`);
-                      finalFilename = `${uuidv4()}.${imageProcessingService.getFileExtension(file.originalname)}`;
-                  }
+                  const optimizedBuffer = await imageProcessingService.processImageWithSharp(
+                      file.buffer,
+                      {
+                          format: file.originalname.toLowerCase().includes('.png') ? 'png' : 'jpeg',
+                          quality: 85,
+                          maxWidth: 1920,
+                          maxHeight: 1080,
+                          removeMetadata: true
+                      }
+                  );
+                  
+                  const extension = imageProcessingService.getFileExtension(file.originalname);
+                  const outputExtension = extension === 'jpg' ? 'jpg' : (extension === 'png' ? 'png' : 'jpg');
+                  
+                  conversionResult = {
+                      buffer: optimizedBuffer,
+                      filename: `${uuidv4()}.${outputExtension}`,
+                      mimeType: `image/${outputExtension === 'jpg' ? 'jpeg' : outputExtension}`,
+                      originalFormat: extension,
+                      outputFormat: outputExtension === 'jpg' ? 'jpeg' : outputExtension
+                  };
               }
+              
+              // Set processed file details
+              finalBuffer = conversionResult.buffer;
+              finalFilename = conversionResult.filename;
+              finalMimeType = conversionResult.mimeType;
+              
+              // Calculate size reduction
+              const sizeReduction = Math.round((1 - finalBuffer.length / file.buffer.length) * 100);
+              console.log(`📊 Size reduction: ${sizeReduction}% (${(file.buffer.length / 1024 / 1024).toFixed(2)} MB → ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+              
+              // Track all conversions and optimizations
+              conversionResults.push({
+                  original: file.originalname,
+                  converted: finalFilename,
+                  originalFormat: conversionResult.originalFormat,
+                  outputFormat: conversionResult.outputFormat,
+                  originalSize: file.buffer.length,
+                  convertedSize: finalBuffer.length,
+                  sizeReduction: sizeReduction
+              });
+              
+              console.log(`✅ Processing completed: ${file.originalname} -> ${finalFilename}`);
 
               // Upload the processed image
               console.log(`📤 Uploading: ${finalFilename} (${finalBuffer.length} bytes)`);
@@ -1040,18 +1054,27 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
 
       console.log(`\n🎉 All ${uploadedFiles.length} files processed successfully!`);
       
+      // Calculate average size reduction
+      const avgSizeReduction = conversionResults.length > 0 
+          ? Math.round(conversionResults.reduce((sum, result) => sum + result.sizeReduction, 0) / conversionResults.length)
+          : 0;
+      
       // Return response with conversion details
       const response = { 
           imageUrls,
           totalFiles: uploadedFiles.length,
-          successCount: imageUrls.length
+          successCount: imageUrls.length,
+          averageSizeReduction: avgSizeReduction,
+          totalOriginalSize: conversionResults.reduce((sum, result) => sum + result.originalSize, 0),
+          totalOptimizedSize: conversionResults.reduce((sum, result) => sum + result.convertedSize, 0),
+          conversions: conversionResults
       };
       
-      // Include conversion details if any conversions were performed
-      if (conversionResults.length > 0) {
-          response.conversions = conversionResults;
-          console.log('Conversion summary:', conversionResults);
-      }
+      console.log('📊 Upload Summary:', {
+          filesProcessed: uploadedFiles.length,
+          averageSizeReduction: `${avgSizeReduction}%`,
+          totalSavings: `${((response.totalOriginalSize - response.totalOptimizedSize) / 1024 / 1024).toFixed(2)} MB`
+      });
       
       res.status(200).json(response);
       
