@@ -46,7 +46,13 @@ app.use(json()); // for parsing application/json
 
 // Set up Multer for file uploads (in-memory storage for simplicity)
 const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+const upload = multer({ 
+    storage: storage,
+    limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB max file size to allow large files before compression
+        files: 10 // max 10 files
+    }
+});
 
 // List of admin email addresses - keep in sync with other admin files
 const ADMIN_EMAILS = [
@@ -919,8 +925,29 @@ app.delete('/api/furniture/:id', async (req, res) => {
 });
 
 // 5. Image Upload Endpoint with Automatic Format Conversion
-app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
+app.post('/api/upload', (req, res, next) => {
+    // Handle multer errors
+    upload.array('photos', 10)(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({ 
+                    error: 'File too large. Maximum file size is 10MB per file. Our system will automatically compress your images to under 2MB.' 
+                });
+            }
+            if (err.code === 'LIMIT_FILE_COUNT') {
+                return res.status(400).json({ error: 'Too many files. Maximum 10 files allowed.' });
+            }
+            return res.status(400).json({ error: 'File upload error: ' + err.message });
+        }
+        if (err) {
+            return res.status(500).json({ error: 'Upload failed: ' + err.message });
+        }
+        next();
+    });
+}, async (req, res) => {
   try {
+      console.log(`📤 Upload request received - Files: ${req.files?.length || 0}`);
+      
       if (!req.files || req.files.length === 0) {
           return res.status(400).json({ error: 'No files were uploaded.' });
       }
@@ -943,6 +970,7 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
       for (let i = 0; i < uploadedFiles.length; i++) {
           const file = uploadedFiles[i];
           console.log(`\n📸 Processing file ${i + 1}/${uploadedFiles.length}: ${file.originalname}`);
+          console.log(`📊 Original file size: ${(file.buffer.length / 1024 / 1024).toFixed(2)} MB`);
           
           try {
               // Check if the image format is supported
@@ -1009,38 +1037,47 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
               if (finalBuffer.length > targetSizeInBytes) {
                   console.log(`🔄 File still over 2MB (${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB), applying aggressive compression...`);
                   
+                  let currentBuffer = finalBuffer;
                   let quality = 70;
                   let maxWidth = 1600;
                   let maxHeight = 1200;
                   let attempts = 0;
                   const maxAttempts = 5;
                   
-                  while (finalBuffer.length > targetSizeInBytes && attempts < maxAttempts) {
+                  while (currentBuffer.length > targetSizeInBytes && attempts < maxAttempts) {
                       attempts++;
                       console.log(`🔄 Compression attempt ${attempts}/${maxAttempts} - Quality: ${quality}, Max dimensions: ${maxWidth}x${maxHeight}`);
                       
-                      const compressedBuffer = await imageProcessingService.processImageWithSharp(
-                          finalBuffer,
-                          {
-                              format: 'jpeg', // Force JPEG for better compression
-                              quality: quality,
-                              maxWidth: maxWidth,
-                              maxHeight: maxHeight,
-                              removeMetadata: true
-                          }
-                      );
-                      
-                      finalBuffer = compressedBuffer;
-                      finalMimeType = 'image/jpeg';
-                      finalFilename = finalFilename.replace(/\.(png|webp|gif)$/i, '.jpg');
-                      
-                      // Reduce quality and dimensions for next attempt
-                      quality = Math.max(30, quality - 10);
-                      maxWidth = Math.max(800, maxWidth - 200);
-                      maxHeight = Math.max(600, maxHeight - 150);
-                      
-                      console.log(`📊 After compression attempt ${attempts}: ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+                      try {
+                          const compressedBuffer = await imageProcessingService.processImageWithSharp(
+                              currentBuffer,
+                              {
+                                  format: 'jpeg', // Force JPEG for better compression
+                                  quality: quality,
+                                  maxWidth: maxWidth,
+                                  maxHeight: maxHeight,
+                                  removeMetadata: true
+                              }
+                          );
+                          
+                          currentBuffer = compressedBuffer;
+                          console.log(`📊 After compression attempt ${attempts}: ${(currentBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+                          
+                          // Reduce quality and dimensions for next attempt
+                          quality = Math.max(30, quality - 10);
+                          maxWidth = Math.max(800, maxWidth - 200);
+                          maxHeight = Math.max(600, maxHeight - 150);
+                          
+                      } catch (compressionError) {
+                          console.error(`❌ Compression attempt ${attempts} failed:`, compressionError.message);
+                          break;
+                      }
                   }
+                  
+                  // Update final values
+                  finalBuffer = currentBuffer;
+                  finalMimeType = 'image/jpeg';
+                  finalFilename = finalFilename.replace(/\.(png|webp|gif)$/i, '.jpg');
                   
                   if (finalBuffer.length > targetSizeInBytes) {
                       console.log(`⚠️  Warning: File still over 2MB after ${maxAttempts} attempts. Final size: ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB`);
