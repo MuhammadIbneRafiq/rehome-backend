@@ -12,6 +12,11 @@
       "dest": "/server.js"
     }
   ],
+  "functions": {
+    "server.js": {
+      "maxDuration": 300
+    }
+  },
   "env": {
     "NODE_ENV": "production"
   }

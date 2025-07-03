@@ -23,6 +23,14 @@ import imageProcessingService from './services/imageProcessingService.js';
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Set generous timeout settings for image processing
+app.use((req, res, next) => {
+    // Set timeout to 5 minutes for all requests
+    req.setTimeout(300000); // 5 minutes
+    res.setTimeout(300000); // 5 minutes
+    next();
+});
+
 // Environment variables with defaults
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-this-in-production';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '48h'; // Extended to 48 hours
@@ -3034,7 +3042,17 @@ export default app;
 // Start the server only when running this file directly (for local development)
 if (process.env.NODE_ENV !== 'production') {
     const port = process.env.PORT || 3000;
-    app.listen(port, () => {
+    
+    // Create HTTP server with generous timeout settings
+    const server = http.createServer(app);
+    
+    // Set server timeouts to handle long image processing operations
+    server.keepAliveTimeout = 300000; // 5 minutes
+    server.headersTimeout = 310000; // Slightly longer than keepAliveTimeout
+    server.requestTimeout = 300000; // 5 minutes
+    
+    server.listen(port, () => {
         console.log(`Server listening on port ${port}`);
+        console.log(`Server timeouts configured: keepAlive=5min, headers=5.17min, request=5min`);
     });
 }
