@@ -57,7 +57,7 @@ const storage = multer.memoryStorage();
 const upload = multer({ 
     storage: storage,
     limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB max file size to allow large files before compression
+        fileSize: 50 * 1024 * 1024, // 50MB max file size to allow very large files before compression
         files: 10 // max 10 files
     }
 });
@@ -937,9 +937,10 @@ app.post('/api/upload', (req, res, next) => {
     // Handle multer errors
     upload.array('photos', 10)(req, res, (err) => {
         if (err instanceof multer.MulterError) {
+            console.error('Multer error:', err.code, err.message);
             if (err.code === 'LIMIT_FILE_SIZE') {
                 return res.status(400).json({ 
-                    error: 'File too large. Maximum file size is 10MB per file. Our system will automatically compress your images to under 2MB.' 
+                    error: 'File too large. Maximum file size is 50MB per file. Our system will automatically compress your images to under 2MB.' 
                 });
             }
             if (err.code === 'LIMIT_FILE_COUNT') {
@@ -956,7 +957,15 @@ app.post('/api/upload', (req, res, next) => {
   try {
       console.log(`📤 Upload request received - Files: ${req.files?.length || 0}`);
       
+      // Log detailed file information
+      if (req.files && req.files.length > 0) {
+          req.files.forEach((file, index) => {
+              console.log(`📁 File ${index + 1}: ${file.originalname}, Size: ${(file.size / 1024 / 1024).toFixed(2)}MB, Type: ${file.mimetype}`);
+          });
+      }
+      
       if (!req.files || req.files.length === 0) {
+          console.error('❌ No files received in request');
           return res.status(400).json({ error: 'No files were uploaded.' });
       }
 
