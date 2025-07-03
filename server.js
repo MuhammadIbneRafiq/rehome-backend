@@ -7,7 +7,7 @@ import rateLimit from "express-rate-limit";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import Joi from "joi";
-import { supabaseClient } from "./db/params.js";
+import { supabaseClient, SUPABASE_URL } from "./db/params.js";
 import express, { json } from "express";
 import cors from "cors";
 import multer from 'multer'; // Import multer for handling file uploads
@@ -1121,7 +1121,7 @@ app.post('/api/upload', (req, res, next) => {
               }
               
               console.log('Upload successful:', uploadData);
-              const imageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/furniture-images/${finalFilename}`;
+              const imageUrl = `${SUPABASE_URL}/storage/v1/object/public/furniture-images/${finalFilename}`;
               console.log('Generated image URL:', imageUrl);
               imageUrls.push(imageUrl);
               

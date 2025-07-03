@@ -46,4 +46,4 @@ testSupabaseConnection();
 const connectionString = process.env.POSTGRES_CONNECTION_STRING || null;
 const pool = connectionString ? new pg.Pool({ connectionString }) : null;
 
-export { supabaseClient, pool };
+export { supabaseClient, pool, SUPABASE_URL };
