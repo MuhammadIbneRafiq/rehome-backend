@@ -1004,6 +1004,51 @@ app.post('/api/upload', upload.array('photos', 10), async (req, res) => {
               finalFilename = conversionResult.filename;
               finalMimeType = conversionResult.mimeType;
               
+              // Additional compression if file is still over 2MB
+              const targetSizeInBytes = 2 * 1024 * 1024; // 2MB
+              if (finalBuffer.length > targetSizeInBytes) {
+                  console.log(`🔄 File still over 2MB (${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB), applying aggressive compression...`);
+                  
+                  let quality = 70;
+                  let maxWidth = 1600;
+                  let maxHeight = 1200;
+                  let attempts = 0;
+                  const maxAttempts = 5;
+                  
+                  while (finalBuffer.length > targetSizeInBytes && attempts < maxAttempts) {
+                      attempts++;
+                      console.log(`🔄 Compression attempt ${attempts}/${maxAttempts} - Quality: ${quality}, Max dimensions: ${maxWidth}x${maxHeight}`);
+                      
+                      const compressedBuffer = await imageProcessingService.processImageWithSharp(
+                          finalBuffer,
+                          {
+                              format: 'jpeg', // Force JPEG for better compression
+                              quality: quality,
+                              maxWidth: maxWidth,
+                              maxHeight: maxHeight,
+                              removeMetadata: true
+                          }
+                      );
+                      
+                      finalBuffer = compressedBuffer;
+                      finalMimeType = 'image/jpeg';
+                      finalFilename = finalFilename.replace(/\.(png|webp|gif)$/i, '.jpg');
+                      
+                      // Reduce quality and dimensions for next attempt
+                      quality = Math.max(30, quality - 10);
+                      maxWidth = Math.max(800, maxWidth - 200);
+                      maxHeight = Math.max(600, maxHeight - 150);
+                      
+                      console.log(`📊 After compression attempt ${attempts}: ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+                  }
+                  
+                  if (finalBuffer.length > targetSizeInBytes) {
+                      console.log(`⚠️  Warning: File still over 2MB after ${maxAttempts} attempts. Final size: ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+                  } else {
+                      console.log(`✅ Successfully compressed to ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+                  }
+              }
+              
               // Calculate size reduction
               const sizeReduction = Math.round((1 - finalBuffer.length / file.buffer.length) * 100);
               console.log(`📊 Size reduction: ${sizeReduction}% (${(file.buffer.length / 1024 / 1024).toFixed(2)} MB → ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
