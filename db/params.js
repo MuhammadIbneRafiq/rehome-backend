@@ -4,10 +4,9 @@ dotenv.config();
 import { createClient } from "@supabase/supabase-js";
 import pg from "pg";
 
-// Supabase configuration
+// Directly set the Supabase configuration values
 const SUPABASE_URL = "https://yhlenudckwewmejigxvl.supabase.co";
-// Use service role key for backend operations (bypasses RLS)
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlobGVudWRja3dld21lamlneHZsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczNzIxOTQwOCwiZXhwIjoyMDUyNzk1NDA4fQ.BgQSMH3yOPKYLvVqPNnpyTrqMBvNJcw7bJTdKJr_Ql4";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlobGVudWRja3dld21lamlneHZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzcyMTk0MDgsImV4cCI6MjA1Mjc5NTQwOH0.CaNKgZXfhkT9-FaGF5hhqQ3aavfUi32R-1ueew8B-S0";
 
 console.log("Connecting to Supabase with URL:", SUPABASE_URL);
 
