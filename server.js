@@ -11,7 +11,9 @@ import { Resend } from 'resend';
 import { createMollieClient } from '@mollie/api-client';
 import { supabaseClient as supabase } from './db/params.js';
 import { sendReHomeOrderEmail } from "./notif.js";
-
+import http from 'http'; // Import http module for server creation
+import { authenticateUser } from './middleware/auth.js';
+import * as imageProcessingService from './services/imageProcessingService.js';
 const app = express();
 
 // Set generous timeout settings for image processing
@@ -144,6 +146,25 @@ const cityBaseChargeSchema = Joi.object({
 const cityDayDataSchema = Joi.object({
     cityName: Joi.string().required(),
     days: Joi.array().items(Joi.string()).required()
+});
+
+// Pricing calculation validation schema
+const pricingCalculationSchema = Joi.object({
+    serviceType: Joi.string().required(),
+    pickupLocation: Joi.string().required(),
+    dropoffLocation: Joi.string().required(),
+    selectedDate: Joi.date().required(),
+    isDateFlexible: Joi.boolean().default(false),
+    itemQuantities: Joi.object().pattern(Joi.string(), Joi.number()).required(),
+    floorPickup: Joi.number().default(0),
+    floorDropoff: Joi.number().default(0),
+    elevatorPickup: Joi.boolean().default(false),
+    elevatorDropoff: Joi.boolean().default(false),
+    assemblyItems: Joi.object().pattern(Joi.string(), Joi.boolean()),
+    extraHelperItems: Joi.object().pattern(Joi.string(), Joi.boolean()),
+    isStudent: Joi.boolean().default(false),
+    hasStudentId: Joi.boolean().default(false),
+    isEarlyBooking: Joi.boolean().default(false)
 });
 
 app.post("/api/mollie", async (req, res) => {
@@ -403,8 +424,6 @@ app.post("/api/auth/logout", authenticateUser, async (req, res) => {
 });
 
 // --------------------  Supabase Instance and Helper Functions --------------------
-const supabase = supabaseClient
-
 // Helper function to handle Supabase errors
 const handleSupabaseError = (error) => {
     console.error('Supabase error:', error);
