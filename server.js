@@ -2511,6 +2511,45 @@ app.post('/api/bids', async (req, res) => {
         // Convert item_id to string to match UUID format in database
         const itemIdStr = String(item_id);
 
+        // Check if item exists and is set for bidding
+        const { data: item, error: itemError } = await supabase
+            .from('marketplace_furniture')
+            .select('pricing_type, sold, isrehome')
+            .eq('id', itemIdStr)
+            .single();
+
+        if (itemError) {
+            console.log('❌ Error fetching item:', itemError);
+            return res.status(404).json({
+                success: false,
+                error: 'Item not found'
+            });
+        }
+
+        // Check if item is sold
+        if (item.sold) {
+            return res.status(400).json({
+                success: false,
+                error: 'This item has already been sold'
+            });
+        }
+
+        // Check if item is a ReHome item
+        if (item.isrehome) {
+            return res.status(400).json({
+                success: false,
+                error: 'Bidding is not allowed on ReHome items'
+            });
+        }
+
+        // Check if item is set for bidding
+        if (item.pricing_type !== 'bidding') {
+            return res.status(400).json({
+                success: false,
+                error: 'This item is not available for bidding'
+            });
+        }
+
         console.log('📋 Placing bid for item:', itemIdStr);
         console.log('📋 Bidder:', bidder_email);
         console.log('📋 Amount:', bid_amount);
@@ -2576,6 +2615,20 @@ app.get('/api/bids/:itemId/cart-eligibility/:userEmail', async (req, res) => {
         const { userEmail } = req.params;
         
         console.log('📋 Checking cart eligibility for user:', userEmail, 'item:', itemIdStr);
+        
+        // First check if the item is a ReHome item
+        const { data: item, error: itemError } = await supabase
+            .from('marketplace_furniture')
+            .select('isrehome')
+            .eq('id', itemIdStr)
+            .single();
+            
+        if (itemError) throw itemError;
+        
+        // If it's a ReHome item, no bidding is allowed
+        if (item.isrehome) {
+            return res.json({ canAdd: false, message: 'Bidding is not allowed on ReHome items' });
+        }
         
         // Get the highest bid for this item
         const { data: highestBid, error: highestBidError } = await supabase
