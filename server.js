@@ -3158,6 +3158,83 @@ if (supabase) {
     migratePricingConstraint();
 }
 
+// Get sold furniture items for seller dashboard
+app.get('/api/furniture/sold', authenticateUser, async (req, res) => {
+    try {
+        console.log('=== SOLD FURNITURE ENDPOINT ===');
+        console.log('User email:', req.user?.email);
+        
+        if (!supabase) {
+            console.error('Supabase client is not initialized!');
+            return res.status(500).json({ error: 'Supabase client not initialized' });
+        }
+
+        // Get pagination parameters
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const offset = (page - 1) * limit;
+        
+        console.log('📋 Pagination params:', { page, limit, offset });
+
+        // For admin users, get all sold items. For regular users, get only their sold items
+        let query = supabase
+            .from('marketplace_furniture')
+            .select('*')
+            .eq('sold', true) // Only sold items
+            .order('updated_at', { ascending: false }); // Most recently updated first
+
+        // If not admin, filter by seller email
+        if (!isAdmin(req.user?.email)) {
+            query = query.eq('seller_email', req.user?.email);
+        }
+
+        // Apply pagination
+        const { data, error } = await query.range(offset, offset + limit - 1);
+
+        console.log('Sold items response - Data count:', data?.length);
+        console.log('Sold items response - Error:', error);
+
+        if (error) {
+            console.error("Supabase error details:", JSON.stringify(error, null, 2));
+            return res.status(500).json({ 
+                error: 'Supabase error',
+                details: error.message || error
+            });
+        }
+
+        // Map database field names to frontend expected field names
+        const mappedData = (data || []).map(item => ({
+            ...item,
+            isrehome: item.is_rehome,
+            image_url: item.image_urls
+        }));
+
+        console.log('✅ Sending sold items response:', {
+            itemCount: mappedData.length,
+            userEmail: req.user?.email,
+            isAdmin: isAdmin(req.user?.email)
+        });
+        
+        res.json({
+            data: mappedData,
+            pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(mappedData.length / limit),
+                totalItems: mappedData.length,
+                itemsPerPage: limit,
+                hasNextPage: false, // Simple implementation for now
+                hasPreviousPage: page > 1
+            }
+        });
+    } catch (err) {
+        console.error('Caught exception in sold furniture endpoint:', err);
+        res.status(500).json({ 
+            error: 'Internal Server Error',
+            message: err.message
+        });
+    }
+});
+
 export default app;
 
 // Start the server only when running this file directly (for local development)
