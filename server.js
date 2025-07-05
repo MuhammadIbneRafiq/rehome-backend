@@ -1,27 +1,18 @@
 // server.js - ReHome Pricing System Backend
 import dotenv from 'dotenv';
 dotenv.config();
-
-import helmet from "helmet";
-import rateLimit from "express-rate-limit";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import Joi from "joi";
 import { supabaseClient, SUPABASE_URL } from "./db/params.js";
 import express, { json } from "express";
 import cors from "cors";
 import multer from 'multer'; // Import multer for handling file uploads
 import { v4 as uuidv4 } from 'uuid'; // Import uuid to generate unique file names
-// import { sendEmail } from "./notif.js";
 import { Resend } from 'resend';
-import { Server } from 'socket.io';
-import http from 'http';
 import { createMollieClient } from '@mollie/api-client';
-import { authenticateUser } from './middleware/auth.js';
-import imageProcessingService from './services/imageProcessingService.js';
+import { supabaseClient as supabase } from './db/params.js';
+import { sendReHomeOrderEmail } from "./notif.js";
 
 const app = express();
-const port = process.env.PORT || 3000;
 
 // Set generous timeout settings for image processing
 app.use((req, res, next) => {
@@ -30,10 +21,6 @@ app.use((req, res, next) => {
     res.setTimeout(300000); // 5 minutes
     next();
 });
-
-// Environment variables with defaults
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-this-in-production';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '48h'; // Extended to 48 hours
 
 // Initialize Resend only if API key is available
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -821,6 +808,59 @@ app.post('/api/item-moving-requests', async (req, res) => {
           return res.status(500).json({ error: error.message });
       }
   });
+
+// ReHome order confirmation email endpoint
+app.post('/api/rehome-order/send-confirmation', async (req, res) => {
+  try {
+    const { 
+      orderNumber, 
+      items, 
+      totalAmount, 
+      customerInfo 
+    } = req.body;
+    
+    // Validate required fields
+    if (!orderNumber || !items || !customerInfo || !customerInfo.email) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: orderNumber, items, customerInfo.email' 
+      });
+    }
+    
+    console.log('📧 Sending ReHome order confirmation email for order:', orderNumber);
+    
+    const emailResult = await sendReHomeOrderEmail({
+      orderNumber,
+      customerEmail: customerInfo.email,
+      customerFirstName: customerInfo.firstName || 'Valued Customer',
+      customerLastName: customerInfo.lastName || '',
+      items,
+      totalAmount
+    });
+    
+    if (!emailResult.success) {
+      console.warn('⚠️ Email sending failed but continuing with order process:', emailResult.message || emailResult.error);
+      // We don't want to fail the entire order just because email failed
+      return res.status(200).json({ 
+        success: true, 
+        emailSent: false,
+        message: 'Order processed but confirmation email could not be sent'
+      });
+    }
+    
+    return res.status(200).json({ 
+      success: true,
+      emailSent: true,
+      message: 'Order confirmation email sent successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error sending ReHome order confirmation email:', error);
+    res.status(500).json({ 
+      error: 'Failed to send order confirmation email',
+      details: error.message
+    });
+  }
+});
 
 // 2. Add a new furniture item
 app.post('/api/furniture', async (req, res) => {
