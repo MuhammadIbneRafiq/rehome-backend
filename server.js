@@ -473,11 +473,22 @@ app.get('/api/furniture', async (req, res) => {
             console.log('Error getting count:', countError);
         }
 
-        // Get paginated data ordered by newest first
-        const { data, error } = await supabase
+        // Check if we should include sold items
+        const includeSold = req.query.include_sold === 'true';
+        console.log('Include sold items:', includeSold);
+
+        // Build query - conditionally filter by sold status
+        let query = supabase
             .from('marketplace_furniture')
-            .select('*')
-            .eq('sold', false) // Only show available items
+            .select('*');
+
+        // Only filter out sold items if not explicitly including them
+        if (!includeSold) {
+            query = query.eq('sold', false);
+        }
+
+        // Apply ordering and pagination
+        const { data, error } = await query
             .order('created_at', { ascending: false }) // Newest first
             .range(offset, offset + limit - 1); // Pagination
 
