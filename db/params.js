@@ -4,9 +4,9 @@ dotenv.config();
 import { createClient } from "@supabase/supabase-js";
 import pg from "pg";
 
-// Directly set the Supabase configuration values
+// Supabase configuration - use service role key for backend operations
 const SUPABASE_URL = "https://yhlenudckwewmejigxvl.supabase.co";
-// Use service role key for backend operations (has full access)
+// Service role key for backend operations (has full database access)
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlobGVudWRja3dld21lamlneHZsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczNzIxOTQwOCwiZXhwIjoyMDUyNzk1NDA4fQ.BgQSMH3yOPKYLvVqPNnpyTrqMBvNJcw7bJTdKJr_Ql4";
 
 console.log("Connecting to Supabase with URL:", SUPABASE_URL);
