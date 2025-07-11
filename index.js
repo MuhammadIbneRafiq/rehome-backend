@@ -50,11 +50,7 @@ const pricingConfigsHandler = require('./api/admin/pricing-configs');
 const cityPricesHandler = require('./api/admin/city-prices');
 const pricingMultipliersHandler = require('./api/admin/pricing-multipliers');
 
-// Import Google OAuth routes
-const googleAuthRouter = require('./api/auth/google');
 
-// Authentication endpoints
-app.use('/api/auth', googleAuthRouter);
 
 // Pricing configuration endpoints
 app.all('/api/admin/pricing-configs', pricingConfigsHandler);
