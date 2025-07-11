@@ -387,9 +387,23 @@ app.post("/api/auth/google/callback", async (req, res) => {
         const clientId = process.env.GOOGLE_CLIENT_ID;
         const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
+        console.log('🔍 Environment check:', {
+            clientIdExists: !!clientId,
+            clientSecretExists: !!clientSecret,
+            clientIdLength: clientId ? clientId.length : 0,
+            clientSecretLength: clientSecret ? clientSecret.length : 0
+        });
+
         if (!clientId || !clientSecret) {
             console.error('❌ Google OAuth credentials not configured');
-            return res.status(500).json({ error: 'Google OAuth not configured' });
+            console.error('Missing:', {
+                clientId: !clientId ? 'GOOGLE_CLIENT_ID missing' : 'OK',
+                clientSecret: !clientSecret ? 'GOOGLE_CLIENT_SECRET missing' : 'OK'
+            });
+            return res.status(500).json({ 
+                error: 'Google OAuth not configured',
+                details: 'Missing Google OAuth credentials in environment variables'
+            });
         }
 
         // Exchange authorization code for access token
