@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid'; // Import uuid to generate unique file name
 import { Resend } from 'resend';
 import { createMollieClient } from '@mollie/api-client';
 import { sendReHomeOrderEmail } from "./notif.js";
+import http from 'http'; // Import http module for server creation
 import { authenticateUser } from './middleware/auth.js';
 import * as imageProcessingService from './services/imageProcessingService.js';
 import axios from 'axios';
