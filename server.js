@@ -4,6 +4,9 @@ dotenv.config();
 import Joi from "joi";
 import { supabaseClient, SUPABASE_URL } from "./db/params.js";
 import express, { json } from "express";
+
+// Create alias for backward compatibility (since code uses both supabase and supabaseClient)
+const supabase = supabaseClient;
 import cors from "cors";
 import multer from 'multer'; // Import multer for handling file uploads
 import { v4 as uuidv4 } from 'uuid'; // Import uuid to generate unique file names
@@ -652,7 +655,7 @@ app.get('/api/test', (req, res) => {
         success: true, 
         message: 'Backend is working!', 
         timestamp: new Date().toISOString(),
-        supabaseAvailable: !!supabase
+        supabaseAvailable: !!supabaseClient
     });
 });
 
@@ -661,7 +664,6 @@ app.get('/api/furniture', async (req, res) => {
     try {
         console.log('Furniture endpoint called');
         console.log('supabaseClient available:', !!supabaseClient);
-        console.log('supabase available:', !!supabase);
         
         // Get pagination parameters
         const page = parseInt(req.query.page) || 1;
@@ -670,7 +672,7 @@ app.get('/api/furniture', async (req, res) => {
         
         console.log('📋 Pagination params:', { page, limit, offset });
         
-        if (!supabase) {
+        if (!supabaseClient) {
             console.error('Supabase client is not initialized!');
             return res.status(500).json({ error: 'Supabase client not initialized' });
         }
@@ -678,7 +680,7 @@ app.get('/api/furniture', async (req, res) => {
         console.log('Fetching furniture from Supabase...');
         
         // Get total count first
-        const { count, error: countError } = await supabase
+        const { count, error: countError } = await supabaseClient
             .from('marketplace_furniture')
             .select('*', { count: 'exact', head: true })
             .eq('sold', false); // Only non-sold items
@@ -692,7 +694,7 @@ app.get('/api/furniture', async (req, res) => {
         console.log('Include sold items:', includeSold);
 
         // Build query - conditionally filter by sold status
-        let query = supabase
+        let query = supabaseClient
             .from('marketplace_furniture')
             .select('*');
 
@@ -3351,7 +3353,7 @@ const migrateStatusField = async () => {
         console.log('🔄 Checking if status column exists...');
         
         // Simple check - try to select status column
-        const { data, error } = await supabase
+        const { data, error } = await supabaseClient
             .from('marketplace_furniture')
             .select('status')
             .limit(1);
@@ -3378,7 +3380,7 @@ const migratePricingConstraint = async () => {
 };
 
 // Run migration on startup
-if (supabase) {
+if (supabaseClient) {
     migrateStatusField();
     migratePricingConstraint();
 }
