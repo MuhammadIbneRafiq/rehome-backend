@@ -576,9 +576,23 @@ app.post("/api/auth/google/callback", async (req, res) => {
 
         console.log('✅ User account ready');
 
-        // Return user data and Google access token (no custom JWT needed)
+        // Create custom JWT token with the correct structure
+        const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+        const customToken = jwt.sign({
+            userId: dbUser.id,  // Use userId not sub
+            email: dbUser.email,
+            sub: dbUser.id,  // Include sub for frontend compatibility
+            email_verified: true,
+            phone_verified: true,
+            role: 'user',
+            provider: 'google'
+        }, jwtSecret, { expiresIn: '48h' });
+
+        console.log('✅ Custom JWT token created for user:', dbUser.email);
+
+        // Return user data and custom JWT token
         res.json({
-            accessToken: access_token,
+            accessToken: customToken,  // Use custom JWT token
             id_token: id_token,
             user: {
                 id: dbUser.id,
