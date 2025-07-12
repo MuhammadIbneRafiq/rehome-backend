@@ -384,10 +384,24 @@ app.post("/api/auth/google/callback", async (req, res) => {
             return res.status(400).json({ error: 'Authorization code is required' });
         }
 
-        // const clientId = process.env.GOOGLE_CLIENT_ID;
-        // const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-        const clientId = '721138794330-ng7j4un0gt4k516h5fv0absqqd3rvtbs.apps.googleusercontent.com'
-        const clientSecret = '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'
+        // Get credentials from environment variables
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+        
+        // Validate redirect URI
+        const allowedRedirectUris = [
+            'http://localhost:5173/auth/google/callback',
+            'https://www.rehomebv.com/auth/google/callback',
+            'https://rehomebv.com/auth/google/callback'
+        ];
+        
+        if (!allowedRedirectUris.includes(redirect_uri)) {
+            console.error('❌ Invalid redirect URI:', redirect_uri);
+            return res.status(400).json({ 
+                error: 'Invalid redirect URI',
+                details: 'The provided redirect URI is not in the allowed list'
+            });
+        }
 
         console.log('🔍 Environment check:', {
             clientIdExists: !!clientId,
