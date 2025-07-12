@@ -423,12 +423,11 @@ app.post("/api/auth/google/callback", async (req, res) => {
         });
 
         const { access_token, id_token, refresh_token } = tokenResponse.data;
-        
         if (!access_token) {
             throw new Error('No access token received from Google');
         }
 
-        console.log('✅ Tokens received from Google');
+        console.log('✅ Tokens received from Google', access_token);
 
         // Get user info from Google
         console.log('🔄 Fetching user info from Google...');
@@ -579,7 +578,8 @@ app.post("/api/auth/google/callback", async (req, res) => {
 
         // Return user data and Google access token (no custom JWT needed)
         res.json({
-            accessToken: access_token, // Use Google's access token directly
+            accessToken: access_token,
+            id_token: id_token,
             user: {
                 id: dbUser.id,
                 email: dbUser.email,
