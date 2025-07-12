@@ -449,9 +449,33 @@ app.post("/api/auth/google/callback", async (req, res) => {
 
         // Check if user exists in Supabase
         console.log('🔄 Checking/creating user in database...');
+        console.log('📋 User data from Google:', {
+            email: googleUser.email,
+            name: googleUser.name,
+            id: googleUser.id,
+            picture: googleUser.picture
+        });
+        
         let dbUser;
         
+        // Test database connection first
+        console.log('🔍 Testing database connection...');
+        const { data: testData, error: testError } = await supabaseClient
+            .from('profiles')
+            .select('count')
+            .limit(1);
+        
+        if (testError) {
+            console.error('❌ Database connection failed:', testError);
+            return res.status(500).json({ 
+                error: 'Database connection failed',
+                details: testError.message
+            });
+        }
+        console.log('✅ Database connection working');
+        
         // First, try to find existing user by email
+        console.log('🔍 Searching for existing user...');
         const { data: existingUsers, error: fetchError } = await supabaseClient
             .from('profiles')
             .select('*')
@@ -460,13 +484,26 @@ app.post("/api/auth/google/callback", async (req, res) => {
 
         if (fetchError) {
             console.error('❌ Error fetching user:', fetchError);
+            console.error('❌ Fetch error details:', {
+                message: fetchError.message,
+                details: fetchError.details,
+                hint: fetchError.hint,
+                code: fetchError.code
+            });
+            return res.status(500).json({ 
+                error: 'Failed to fetch user data',
+                details: fetchError.message
+            });
         }
+
+        console.log('🔍 Existing users found:', existingUsers?.length || 0);
 
         if (existingUsers && existingUsers.length > 0) {
             dbUser = existingUsers[0];
             console.log('✅ Found existing user:', dbUser.email);
             
             // Update user info if needed
+            console.log('🔄 Updating existing user...');
             const { error: updateError } = await supabaseClient
                 .from('profiles')
                 .update({
@@ -479,30 +516,56 @@ app.post("/api/auth/google/callback", async (req, res) => {
 
             if (updateError) {
                 console.error('❌ Error updating user:', updateError);
+                console.error('❌ Update error details:', {
+                    message: updateError.message,
+                    details: updateError.details,
+                    hint: updateError.hint,
+                    code: updateError.code
+                });
+            } else {
+                console.log('✅ User updated successfully');
             }
         } else {
             // Create new user
             console.log('🔄 Creating new user...');
+            const newUserData = {
+                email: googleUser.email,
+                name: googleUser.name,
+                avatar_url: googleUser.picture,
+                google_id: googleUser.id,
+                auth_provider: 'google',
+                created_at: new Date().toISOString(),
+                last_sign_in: new Date().toISOString()
+            };
+            
+            console.log('📋 New user data to insert:', newUserData);
+            
             const { data: newUsers, error: insertError } = await supabaseClient
                 .from('profiles')
-                .insert([
-                    {
-                        email: googleUser.email,
-                        name: googleUser.name,
-                        avatar_url: googleUser.picture,
-                        google_id: googleUser.id,
-                        auth_provider: 'google',
-                        created_at: new Date().toISOString(),
-                        last_sign_in: new Date().toISOString()
-                    }
-                ])
+                .insert([newUserData])
                 .select();
 
             if (insertError) {
                 console.error('❌ Error creating user:', insertError);
+                console.error('❌ Insert error details:', {
+                    message: insertError.message,
+                    details: insertError.details,
+                    hint: insertError.hint,
+                    code: insertError.code
+                });
                 return res.status(500).json({ 
                     error: 'Failed to create user account',
-                    details: insertError.message 
+                    details: insertError.message,
+                    code: insertError.code,
+                    hint: insertError.hint
+                });
+            }
+
+            if (!newUsers || newUsers.length === 0) {
+                console.error('❌ No user data returned after insert');
+                return res.status(500).json({ 
+                    error: 'Failed to create user account',
+                    details: 'No user data returned after insert'
                 });
             }
 
@@ -510,25 +573,11 @@ app.post("/api/auth/google/callback", async (req, res) => {
             console.log('✅ Created new user:', dbUser.email);
         }
 
-        // Generate custom JWT token
-        const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
-        const customToken = jwt.sign(
-            {
-                userId: dbUser.id,
-                email: dbUser.email,
-                name: dbUser.name,
-                provider: 'google',
-                google_id: googleUser.id
-            },
-            jwtSecret,
-            { expiresIn: '7d' }
-        );
+        console.log('✅ User account ready');
 
-        console.log('✅ Custom JWT token generated');
-
-        // Return user data and access token
+        // Return user data and Google access token (no custom JWT needed)
         res.json({
-            accessToken: customToken,
+            accessToken: access_token, // Use Google's access token directly
             user: {
                 id: dbUser.id,
                 email: dbUser.email,
