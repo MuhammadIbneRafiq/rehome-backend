@@ -384,8 +384,10 @@ app.post("/api/auth/google/callback", async (req, res) => {
             return res.status(400).json({ error: 'Authorization code is required' });
         }
 
-        const clientId = process.env.GOOGLE_CLIENT_ID;
-        const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+        // const clientId = process.env.GOOGLE_CLIENT_ID;
+        // const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+        const clientId = '721138794330-ng7j4un0gt4k516h5fv0absqqd3rvtbs.apps.googleusercontent.com'
+        const clientSecret = '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'
 
         console.log('🔍 Environment check:', {
             clientIdExists: !!clientId,
