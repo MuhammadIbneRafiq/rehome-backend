@@ -1126,6 +1126,8 @@ app.post('/api/rehome-order/send-confirmation', async (req, res) => {
       emailSent: true,
       message: 'Order confirmation email sent successfully'
     });
+
+    
     
   } catch (error) {
     console.error('❌ Error sending ReHome order confirmation email:', error);
