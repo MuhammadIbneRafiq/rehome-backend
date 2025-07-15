@@ -10,9 +10,8 @@ const supabase = supabaseClient;
 import cors from "cors";
 import multer from 'multer'; // Import multer for handling file uploads
 import { v4 as uuidv4 } from 'uuid'; // Import uuid to generate unique file names
-import { Resend } from 'resend';
 import { createMollieClient } from '@mollie/api-client';
-import { sendReHomeOrderEmail } from "./notif.js";
+import { sendReHomeOrderEmail, sendMovingRequestEmail } from "./notif.js";
 import http from 'http'; // Import http module for server creation
 import { authenticateUser } from './middleware/auth.js';
 import * as imageProcessingService from './services/imageProcessingService.js';
@@ -28,9 +27,6 @@ app.use((req, res, next) => {
     next();
 });
 
-// Initialize Resend only if API key is available
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-
 // CORS Configuration - Enable CORS for all routes and origins
 app.use(cors({
     origin: true, // Allow all origins
@@ -39,9 +35,6 @@ app.use(cors({
     credentials: true,
     optionsSuccessStatus: 200 // For legacy browser support
 }));
-
-// Handle preflight OPTIONS requests
-app.options('*', cors());
 
 app.use(json()); // for parsing application/json
 
@@ -921,14 +914,16 @@ app.post('/api/item-moving-requests', async (req, res) => {
         floorDropoff,
         contactInfo,
         estimatedPrice,
-        selectedDate,
+        selectedDateRange,
         isDateFlexible,
         basePrice,
         itemPoints,
         carryingCost,
         disassemblyCost,
         distanceCost,
-        extraHelperCost
+        extraHelperCost,
+        firstLocation,
+        secondLocation
       } = req.body;
       
       console.log('the whole req.body', req.body);
@@ -937,6 +932,9 @@ app.post('/api/item-moving-requests', async (req, res) => {
       if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
         return res.status(400).json({ error: 'Contact information is required' });
       }
+
+      const selecteddate_start = selectedDateRange?.start || null;
+      const selecteddate_end = selectedDateRange?.end || null;
 
       const { data, error } = await supabase
         .from('item_moving')
@@ -951,7 +949,9 @@ app.post('/api/item-moving-requests', async (req, res) => {
           lastname: contactInfo.lastName,
           phone: contactInfo.phone || null,
           estimatedprice: estimatedPrice ? parseFloat(estimatedPrice) : 0,
-          selecteddate: selectedDate || null,
+          selecteddate: selecteddate_start,
+          selecteddate_start,
+          selecteddate_end,
           isdateflexible: Boolean(isDateFlexible),
           baseprice: basePrice ? parseFloat(basePrice) : null,
           itempoints: itemPoints ? parseInt(itemPoints, 10) : null,
@@ -962,9 +962,30 @@ app.post('/api/item-moving-requests', async (req, res) => {
         }])
         .select();
 
-        console.log('data to sb', data);
-  
       if (error) throw error;
+      
+      // Send confirmation email
+      try {
+        const emailResult = await sendMovingRequestEmail({
+          customerEmail: contactInfo.email,
+          customerFirstName: contactInfo.firstName,
+          customerLastName: contactInfo.lastName,
+          serviceType: 'item-moving',
+          pickupLocation: firstLocation,
+          dropoffLocation: secondLocation,
+          selectedDateRange,
+          isDateFlexible,
+          estimatedPrice: estimatedPrice || 0
+        });
+        
+        if (emailResult.success) {
+          console.log('✅ Item moving confirmation email sent successfully');
+        } else {
+          console.error('❌ Failed to send item moving confirmation email:', emailResult.error);
+        }
+      } catch (emailError) {
+        console.error('❌ Error sending item moving confirmation email:', emailError);
+      }
       
       res.status(201).json(data[0]);
     } catch (error) {
@@ -984,14 +1005,16 @@ app.post('/api/item-moving-requests', async (req, res) => {
         floorDropoff,
         contactInfo,
         estimatedPrice,
-        selectedDate,
+        selectedDateRange,
         isDateFlexible,
         basePrice,
         itemPoints,
         carryingCost,
         disassemblyCost,
         distanceCost,
-        extraHelperCost
+        extraHelperCost,
+        firstLocation,
+        secondLocation
     } = req.body;
     
     console.log('the whole req.body', req.body);
@@ -1000,6 +1023,9 @@ app.post('/api/item-moving-requests', async (req, res) => {
     if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
       return res.status(400).json({ error: 'Contact information is required' });
     }
+
+    const selecteddate_start = selectedDateRange?.start || null;
+    const selecteddate_end = selectedDateRange?.end || null;
 
     const { data, error } = await supabase
         .from('house_moving')
@@ -1014,7 +1040,9 @@ app.post('/api/item-moving-requests', async (req, res) => {
         lastname: contactInfo.lastName,
         phone: contactInfo.phone || null,
         estimatedprice: estimatedPrice ? parseFloat(estimatedPrice) : 0,
-        selecteddate: selectedDate || null,
+        selecteddate: selecteddate_start,
+        selecteddate_start,
+        selecteddate_end,
         isdateflexible: Boolean(isDateFlexible),
         baseprice: basePrice ? parseFloat(basePrice) : null,
         itempoints: itemPoints ? parseInt(itemPoints, 10) : null,
@@ -1029,6 +1057,29 @@ app.post('/api/item-moving-requests', async (req, res) => {
 
     if (error) throw error;
 
+    // Send confirmation email
+    try {
+      const emailResult = await sendMovingRequestEmail({
+        customerEmail: contactInfo.email,
+        customerFirstName: contactInfo.firstName,
+        customerLastName: contactInfo.lastName,
+        serviceType: 'house-moving',
+        pickupLocation: firstLocation,
+        dropoffLocation: secondLocation,
+        selectedDateRange,
+        isDateFlexible,
+        estimatedPrice: estimatedPrice || 0
+      });
+      
+      if (emailResult.success) {
+        console.log('✅ House moving confirmation email sent successfully');
+      } else {
+        console.error('❌ Failed to send house moving confirmation email:', emailResult.error);
+      }
+    } catch (emailError) {
+      console.error('❌ Error sending house moving confirmation email:', emailError);
+    }
+
     res.status(201).json(data[0]);
     } catch (error) {
     console.error('Error saving moving request:', error);
@@ -1036,52 +1087,6 @@ app.post('/api/item-moving-requests', async (req, res) => {
     }
     });
 
-
-
-  // Email sending endpoint
-  app.post('/api/send-email', async (req, res) => {
-      const { email, firstName, lastName } = req.body;
-      console.log('here', email, firstName, lastName)
-      
-      if (!resend) {
-          console.warn('Resend API key not configured - email not sent');
-          return res.status(200).json({ success: true, message: 'Email service not configured' });
-      }
-      
-      try {
-          await resend.emails.send({
-            // from: 'muhammadibnerafiq@gmail.com',
-            from: 'Acme <onboarding@resend.dev>',
-
-            to: email,
-            subject: 'Your Moving Request Confirmation',
-            html: 
-            `
-            <p>Dear ${firstName},</p>
-            <p>Thank you for choosing ReHome BV for your moving needs. We're excited to assist you with your upcoming move!</p>
-            <h2>What's Next?</h2>
-                    <ol>
-                        <li>We have received your request and are currently reviewing it.</li>
-                        <li>Our team will carefully plan your move based on the details you provided.</li>
-                        <li>We will send you a quote with the final price and a proposed date for your move.</li>
-                    </ol>
-                    <p>In the meantime, if you have any questions or need to provide additional information, please don't hesitate to contact us at <a href="mailto:info@rehomebv.com">info@rehomebv.com</a>.</p>
-                    <p>Want to explore more about our services? Check out our marketplace:</p>
-                    <a href="https://rehomebv.com/marketplace" class="button">Visit Our Marketplace</a>
-                </div>
-                <div class="footer">
-                    <p>© 2025 ReHome BV. All rights reserved.</p>
-                    <p>This email was sent to confirm your moving request. If you didn't request this, please ignore this email.</p>
-                </div>
-            `
-          });
-          console.log('IT WORKS!')
-          return res.status(200).json({ success: true });
-      } catch (error) {
-          console.error("Error sending email:", error);
-          return res.status(500).json({ error: error.message });
-      }
-  });
 
 // ReHome order confirmation email endpoint
 app.post('/api/rehome-order/send-confirmation', async (req, res) => {
@@ -1093,16 +1098,9 @@ app.post('/api/rehome-order/send-confirmation', async (req, res) => {
       customerInfo 
     } = req.body;
     
-    // Validate required fields
-    if (!orderNumber || !items || !customerInfo || !customerInfo.email) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: orderNumber, items, customerInfo.email' 
-      });
-    }
-    
     console.log('📧 Sending ReHome order confirmation email for order:', orderNumber);
     
-    const emailResult = await sendReHomeOrderEmail({
+    await sendReHomeOrderEmail({
       orderNumber,
       customerEmail: customerInfo.email,
       customerFirstName: customerInfo.firstName || 'Valued Customer',
@@ -1110,24 +1108,14 @@ app.post('/api/rehome-order/send-confirmation', async (req, res) => {
       items,
       totalAmount
     });
-    
-    if (!emailResult.success) {
-      console.warn('⚠️ Email sending failed but continuing with order process:', emailResult.message || emailResult.error);
-      // We don't want to fail the entire order just because email failed
-      return res.status(200).json({ 
-        success: true, 
-        emailSent: false,
-        message: 'Order processed but confirmation email could not be sent'
-      });
-    }
-    
+        
     return res.status(200).json({ 
       success: true,
       emailSent: true,
       message: 'Order confirmation email sent successfully'
     });
 
-    
+
     
   } catch (error) {
     console.error('❌ Error sending ReHome order confirmation email:', error);

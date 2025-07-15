@@ -1,7 +1,15 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
-// Initialize Resend only if API key is available
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+// Hardcoded Gmail SMTP credentials and secure port 465
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: 'info@rehomebv.com',
+    pass: 'bjyw ytex sqej awps'.replace(/\s/g, '') // Remove spaces for app password
+  }
+});
 
 /**
  * Send an order confirmation email for ReHome orders
@@ -9,11 +17,6 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
  * @returns {Promise<Object>} - Result of email sending operation
  */
 export const sendReHomeOrderEmail = async (orderData) => {
-  if (!resend) {
-    console.warn('Resend API key not configured - ReHome order email not sent');
-    return { success: false, message: 'Email service not configured' };
-  }
-
   const { 
     orderNumber, 
     customerEmail, 
@@ -33,8 +36,8 @@ export const sendReHomeOrderEmail = async (orderData) => {
       </tr>
     `).join('');
 
-    const result = await resend.emails.send({
-      from: 'ReHome <orders@rehomebv.com>',
+    const mailOptions = {
+      from: `"ReHome BV" <info@rehomebv.com>`,
       to: customerEmail,
       subject: `Your ReHome Order Confirmation - #${orderNumber}`,
       html: `
@@ -94,8 +97,9 @@ export const sendReHomeOrderEmail = async (orderData) => {
           </div>
         </div>
       `
-    });
-    
+    };
+
+    const result = await transporter.sendMail(mailOptions);
     console.log('✅ ReHome order email sent successfully:', result);
     return { success: true, data: result };
   } catch (error) {
@@ -104,6 +108,83 @@ export const sendReHomeOrderEmail = async (orderData) => {
   }
 };
 
+/**
+ * Send a moving request confirmation email
+ * @param {Object} movingData - Moving request data including customer info and details
+ * @returns {Promise<Object>} - Result of email sending operation
+ */
+export const sendMovingRequestEmail = async (movingData) => {
+  const { 
+    customerEmail, 
+    customerFirstName, 
+    customerLastName,
+    serviceType, // 'item-moving' or 'house-moving'
+    pickupLocation,
+    dropoffLocation,
+    selectedDateRange,
+    isDateFlexible,
+    estimatedPrice
+  } = movingData;
+
+  try {
+    const serviceName = serviceType === 'item-moving' ? 'Item Transport' : 'House Moving';
+    const dateText = isDateFlexible ? 'Flexible' : `${new Date(selectedDateRange.start).toLocaleDateString()}`;
+
+    const mailOptions = {
+      from: `"ReHome BV" <info@rehomebv.com>`,
+      to: customerEmail,
+      subject: `Your ${serviceName} Request Confirmation`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <img src="https://rehomebv.com/logo.png" alt="ReHome Logo" style="max-width: 150px;">
+          </div>
+          
+          <h1 style="color: #ff6b35; text-align: center;">Thank You for Your ${serviceName} Request!</h1>
+          
+          <p>Dear ${customerFirstName},</p>
+          
+          <p>Thank you for choosing ReHome BV for your ${serviceName.toLowerCase()} needs. We're excited to assist you with your upcoming move!</p>
+          
+          <div style="background-color: #f9f9f9; border-radius: 5px; padding: 15px; margin: 20px 0;">
+            <h2 style="margin-top: 0; color: #ff6b35; font-size: 18px;">Request Summary</h2>
+            <p><strong>Service:</strong> ${serviceName}</p>
+            <p><strong>Pickup Location:</strong> ${pickupLocation}</p>
+            <p><strong>Dropoff Location:</strong> ${dropoffLocation}</p>
+            <p><strong>Date:</strong> ${dateText}</p>
+            <p><strong>Estimated Price:</strong> €${estimatedPrice.toFixed(2)}</p>
+          </div>
+          
+          <h2 style="color: #ff6b35; font-size: 18px;">What's Next?</h2>
+          <ol>
+            <li>We have received your request and are currently reviewing it.</li>
+            <li>Our team will carefully plan your move based on the details you provided.</li>
+            <li>We will send you a quote with the final price and a proposed date for your move.</li>
+          </ol>
+          
+          <p>In the meantime, if you have any questions or need to provide additional information, please don't hesitate to contact us at <a href="mailto:info@rehomebv.com">info@rehomebv.com</a>.</p>
+          
+          <p>Want to explore more about our services? Check out our marketplace:</p>
+          <a href="https://rehomebv.com/marketplace" style="display: inline-block; background-color: #ff6b35; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 20px 0;">Visit Our Marketplace</a>
+          
+          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; font-size: 12px; color: #777;">
+            <p>© ${new Date().getFullYear()} ReHome BV. All rights reserved.</p>
+            <p>This email was sent to confirm your moving request. If you didn't request this, please ignore this email.</p>
+          </div>
+        </div>
+      `
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    console.log('✅ Moving request email sent successfully:', result);
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("❌ Error sending moving request email:", error);
+    return { success: false, error: error.message };
+  }
+};
+
 export default {
-  sendReHomeOrderEmail
+  sendReHomeOrderEmail,
+  sendMovingRequestEmail
 };
