@@ -923,7 +923,8 @@ app.post('/api/item-moving-requests', async (req, res) => {
         distanceCost,
         extraHelperCost,
         firstLocation,
-        secondLocation
+        secondLocation,
+        orderSummary
       } = req.body;
       
       console.log('the whole req.body', req.body);
@@ -975,7 +976,8 @@ app.post('/api/item-moving-requests', async (req, res) => {
           dropoffLocation: secondLocation,
           selectedDateRange,
           isDateFlexible,
-          estimatedPrice: estimatedPrice || 0
+          estimatedPrice: estimatedPrice || 0,
+          orderSummary
         });
         
         if (emailResult.success) {
@@ -1014,7 +1016,8 @@ app.post('/api/item-moving-requests', async (req, res) => {
         distanceCost,
         extraHelperCost,
         firstLocation,
-        secondLocation
+        secondLocation,
+        orderSummary
     } = req.body;
     
     console.log('the whole req.body', req.body);
@@ -1068,7 +1071,8 @@ app.post('/api/item-moving-requests', async (req, res) => {
         dropoffLocation: secondLocation,
         selectedDateRange,
         isDateFlexible,
-        estimatedPrice: estimatedPrice || 0
+        estimatedPrice: estimatedPrice || 0,
+        orderSummary
       });
       
       if (emailResult.success) {
