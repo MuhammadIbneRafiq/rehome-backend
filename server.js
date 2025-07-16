@@ -903,7 +903,7 @@ app.get('/api/furniture/:id', async (req, res) => {
 });
 
 // item moving request.
-// 9. Item Moving Request Endpoint
+// 9. Item Moving Request Endpoint with Distance Calculation
 app.post('/api/item-moving-requests', async (req, res) => {
     try {
       const {
@@ -924,10 +924,12 @@ app.post('/api/item-moving-requests', async (req, res) => {
         extraHelperCost,
         firstLocation,
         secondLocation,
+        firstLocationCoords,
+        secondLocationCoords,
         orderSummary
       } = req.body;
       
-      console.log('the whole req.body', req.body);
+      console.log('📦 Item Moving Request - Full Body:', req.body);
       
       // Validate required fields
       if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
@@ -937,102 +939,35 @@ app.post('/api/item-moving-requests', async (req, res) => {
       const selecteddate_start = selectedDateRange?.start || null;
       const selecteddate_end = selectedDateRange?.end || null;
 
-      const { data, error } = await supabase
-        .from('item_moving')
-        .insert([{
-          email: contactInfo.email,
-          pickuptype: pickupType || null,
-          furnitureitems: furnitureItems || null,
-          customitem: customItem || null,
-          floorpickup: floorPickup ? parseInt(floorPickup, 10) : 0,
-          floordropoff: floorDropoff ? parseInt(floorDropoff, 10) : 0,
-          firstname: contactInfo.firstName,
-          lastname: contactInfo.lastName,
-          phone: contactInfo.phone || null,
-          estimatedprice: estimatedPrice ? parseFloat(estimatedPrice) : 0,
-          selecteddate: selecteddate_start,
-          selecteddate_start,
-          selecteddate_end,
-          isdateflexible: Boolean(isDateFlexible),
-          baseprice: basePrice ? parseFloat(basePrice) : null,
-          itempoints: itemPoints ? parseInt(itemPoints, 10) : null,
-          carryingcost: carryingCost ? parseFloat(carryingCost) : null,
-          disassemblycost: disassemblyCost ? parseFloat(disassemblyCost) : null,
-          distancecost: distanceCost ? parseFloat(distanceCost) : null,
-          extrahelpercost: extraHelperCost ? parseFloat(extraHelperCost) : null,
-        }])
-        .select();
-
-      if (error) throw error;
-      
-      // Send confirmation email
-      try {
-        const emailResult = await sendMovingRequestEmail({
-          customerEmail: contactInfo.email,
-          customerFirstName: contactInfo.firstName,
-          customerLastName: contactInfo.lastName,
-          serviceType: 'item-moving',
-          pickupLocation: firstLocation,
-          dropoffLocation: secondLocation,
-          selectedDateRange,
-          isDateFlexible,
-          estimatedPrice: estimatedPrice || 0,
-          orderSummary
-        });
+      // Calculate distance if coordinates are provided
+      let distanceData = null;
+      if (firstLocationCoords && secondLocationCoords) {
+        console.log('🛣️ Calculating distance for item moving request...');
+        console.log('📍 From:', firstLocationCoords, 'To:', secondLocationCoords);
         
-        if (emailResult.success) {
-          console.log('✅ Item moving confirmation email sent successfully');
-        } else {
-          console.error('❌ Failed to send item moving confirmation email:', emailResult.error);
+        try {
+          distanceData = await calculateDistanceBetweenLocations(firstLocationCoords, secondLocationCoords);
+          
+          if (distanceData.success) {
+            console.log('✅ Distance calculated successfully:', {
+              distance: `${distanceData.distanceKm} km`,
+              duration: distanceData.durationText,
+              provider: distanceData.provider
+            });
+          } else {
+            console.log('⚠️ Distance calculation failed:', distanceData.error);
+            // Continue with request even if distance calculation fails
+          }
+        } catch (distanceError) {
+          console.error('❌ Distance calculation error:', distanceError);
+          // Continue with request even if distance calculation fails
         }
-      } catch (emailError) {
-        console.error('❌ Error sending item moving confirmation email:', emailError);
+      } else {
+        console.log('📍 No coordinates provided, skipping distance calculation');
       }
-      
-      res.status(201).json(data[0]);
-    } catch (error) {
-      console.error('Error saving moving request:', error);
-      res.status(500).json({ error: 'Failed to save moving request' });
-    }
-  });
-  
-// HOUSE Moving Request Endpoint
-  app.post('/api/house-moving-requests', async (req, res) => {
-    try {
-    const {
-        pickupType,
-        furnitureItems,
-        customItem,
-        floorPickup,
-        floorDropoff,
-        contactInfo,
-        estimatedPrice,
-        selectedDateRange,
-        isDateFlexible,
-        basePrice,
-        itemPoints,
-        carryingCost,
-        disassemblyCost,
-        distanceCost,
-        extraHelperCost,
-        firstLocation,
-        secondLocation,
-        orderSummary
-    } = req.body;
-    
-    console.log('the whole req.body', req.body);
-    
-    // Validate required fields
-    if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
-      return res.status(400).json({ error: 'Contact information is required' });
-    }
 
-    const selecteddate_start = selectedDateRange?.start || null;
-    const selecteddate_end = selectedDateRange?.end || null;
-
-    const { data, error } = await supabase
-        .from('house_moving')
-        .insert([{
+      // Prepare data for database insertion
+      const insertData = {
         email: contactInfo.email,
         pickuptype: pickupType || null,
         furnitureitems: furnitureItems || null,
@@ -1053,12 +988,195 @@ app.post('/api/item-moving-requests', async (req, res) => {
         disassemblycost: disassemblyCost ? parseFloat(disassemblyCost) : null,
         distancecost: distanceCost ? parseFloat(distanceCost) : null,
         extrahelpercost: extraHelperCost ? parseFloat(extraHelperCost) : null,
-        }])
+        firstlocation: firstLocation || null,
+        secondlocation: secondLocation || null,
+        firstlocation_coords: firstLocationCoords || null,
+        secondlocation_coords: secondLocationCoords || null
+      };
+
+      // Add distance data if available
+      if (distanceData && distanceData.success) {
+        insertData.calculated_distance_km = distanceData.distanceKm;
+        insertData.calculated_duration_seconds = distanceData.duration;
+        insertData.calculated_duration_text = distanceData.durationText;
+        insertData.distance_provider = distanceData.provider;
+      }
+
+      console.log('💾 Inserting item moving request into database...');
+
+      const { data, error } = await supabase
+        .from('item_moving')
+        .insert([insertData])
         .select();
 
-        console.log('data to sb', data);
+      if (error) {
+        console.error('❌ Database insert error:', error);
+        throw error;
+      }
 
-    if (error) throw error;
+      console.log('✅ Item moving request saved successfully');
+      
+      // Send confirmation email
+      try {
+        const emailResult = await sendMovingRequestEmail({
+          customerEmail: contactInfo.email,
+          customerFirstName: contactInfo.firstName,
+          customerLastName: contactInfo.lastName,
+          serviceType: 'item-moving',
+          pickupLocation: firstLocation,
+          dropoffLocation: secondLocation,
+          selectedDateRange,
+          isDateFlexible,
+          estimatedPrice: estimatedPrice || 0,
+          orderSummary,
+          distanceInfo: distanceData && distanceData.success ? {
+            distance: distanceData.distanceText,
+            duration: distanceData.durationText
+          } : null
+        });
+        
+        if (emailResult.success) {
+          console.log('✅ Item moving confirmation email sent successfully');
+        } else {
+          console.error('❌ Failed to send item moving confirmation email:', emailResult.error);
+        }
+      } catch (emailError) {
+        console.error('❌ Error sending item moving confirmation email:', emailError);
+      }
+      
+      // Return response with distance data included
+      const response = {
+        ...data[0],
+        distanceCalculation: distanceData && distanceData.success ? {
+          success: true,
+          distance: distanceData.distanceText,
+          duration: distanceData.durationText,
+          provider: distanceData.provider
+        } : null
+      };
+
+      res.status(201).json(response);
+    } catch (error) {
+      console.error('❌ Error saving item moving request:', error);
+      res.status(500).json({ 
+        error: 'Failed to save moving request',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
+  
+// HOUSE Moving Request Endpoint with Distance Calculation
+  app.post('/api/house-moving-requests', async (req, res) => {
+    try {
+    const {
+        pickupType,
+        furnitureItems,
+        customItem,
+        floorPickup,
+        floorDropoff,
+        contactInfo,
+        estimatedPrice,
+        selectedDateRange,
+        isDateFlexible,
+        basePrice,
+        itemPoints,
+        carryingCost,
+        disassemblyCost,
+        distanceCost,
+        extraHelperCost,
+        firstLocation,
+        secondLocation,
+        firstLocationCoords,
+        secondLocationCoords,
+        orderSummary
+    } = req.body;
+    
+    console.log('🏠 House Moving Request - Full Body:', req.body);
+    
+    // Validate required fields
+    if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
+      return res.status(400).json({ error: 'Contact information is required' });
+    }
+
+    const selecteddate_start = selectedDateRange?.start || null;
+    const selecteddate_end = selectedDateRange?.end || null;
+
+    // Calculate distance if coordinates are provided
+    let distanceData = null;
+    if (firstLocationCoords && secondLocationCoords) {
+      console.log('🛣️ Calculating distance for house moving request...');
+      console.log('📍 From:', firstLocationCoords, 'To:', secondLocationCoords);
+      
+      try {
+        distanceData = await calculateDistanceBetweenLocations(firstLocationCoords, secondLocationCoords);
+        
+        if (distanceData.success) {
+          console.log('✅ Distance calculated successfully:', {
+            distance: `${distanceData.distanceKm} km`,
+            duration: distanceData.durationText,
+            provider: distanceData.provider
+          });
+        } else {
+          console.log('⚠️ Distance calculation failed:', distanceData.error);
+          // Continue with request even if distance calculation fails
+        }
+      } catch (distanceError) {
+        console.error('❌ Distance calculation error:', distanceError);
+        // Continue with request even if distance calculation fails
+      }
+    } else {
+      console.log('📍 No coordinates provided, skipping distance calculation');
+    }
+
+    // Prepare data for database insertion
+    const insertData = {
+      email: contactInfo.email,
+      pickuptype: pickupType || null,
+      furnitureitems: furnitureItems || null,
+      customitem: customItem || null,
+      floorpickup: floorPickup ? parseInt(floorPickup, 10) : 0,
+      floordropoff: floorDropoff ? parseInt(floorDropoff, 10) : 0,
+      firstname: contactInfo.firstName,
+      lastname: contactInfo.lastName,
+      phone: contactInfo.phone || null,
+      estimatedprice: estimatedPrice ? parseFloat(estimatedPrice) : 0,
+      selecteddate: selecteddate_start,
+      selecteddate_start,
+      selecteddate_end,
+      isdateflexible: Boolean(isDateFlexible),
+      baseprice: basePrice ? parseFloat(basePrice) : null,
+      itempoints: itemPoints ? parseInt(itemPoints, 10) : null,
+      carryingcost: carryingCost ? parseFloat(carryingCost) : null,
+      disassemblycost: disassemblyCost ? parseFloat(disassemblyCost) : null,
+      distancecost: distanceCost ? parseFloat(distanceCost) : null,
+      extrahelpercost: extraHelperCost ? parseFloat(extraHelperCost) : null,
+      firstlocation: firstLocation || null,
+      secondlocation: secondLocation || null,
+      firstlocation_coords: firstLocationCoords || null,
+      secondlocation_coords: secondLocationCoords || null
+    };
+
+    // Add distance data if available
+    if (distanceData && distanceData.success) {
+      insertData.calculated_distance_km = distanceData.distanceKm;
+      insertData.calculated_duration_seconds = distanceData.duration;
+      insertData.calculated_duration_text = distanceData.durationText;
+      insertData.distance_provider = distanceData.provider;
+    }
+
+    console.log('💾 Inserting house moving request into database...');
+
+    const { data, error } = await supabase
+        .from('house_moving')
+        .insert([insertData])
+        .select();
+
+    if (error) {
+      console.error('❌ Database insert error:', error);
+      throw error;
+    }
+
+    console.log('✅ House moving request saved successfully');
 
     // Send confirmation email
     try {
@@ -1072,7 +1190,11 @@ app.post('/api/item-moving-requests', async (req, res) => {
         selectedDateRange,
         isDateFlexible,
         estimatedPrice: estimatedPrice || 0,
-        orderSummary
+        orderSummary,
+        distanceInfo: distanceData && distanceData.success ? {
+          distance: distanceData.distanceText,
+          duration: distanceData.durationText
+        } : null
       });
       
       if (emailResult.success) {
@@ -1084,10 +1206,24 @@ app.post('/api/item-moving-requests', async (req, res) => {
       console.error('❌ Error sending house moving confirmation email:', emailError);
     }
 
-    res.status(201).json(data[0]);
+    // Return response with distance data included
+    const response = {
+      ...data[0],
+      distanceCalculation: distanceData && distanceData.success ? {
+        success: true,
+        distance: distanceData.distanceText,
+        duration: distanceData.durationText,
+        provider: distanceData.provider
+      } : null
+    };
+
+    res.status(201).json(response);
     } catch (error) {
-    console.error('Error saving moving request:', error);
-    res.status(500).json({ error: 'Failed to save moving request' });
+    console.error('❌ Error saving house moving request:', error);
+    res.status(500).json({ 
+      error: 'Failed to save moving request',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
     }
     });
 
@@ -1666,29 +1802,368 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
     }
 });
 
-// 7. Special Request Endpoint
+// 7. Special Request Endpoint with Distance Calculation
 app.post('/api/special-request', async (req, res) => {
-  const { selectedServices, message, contactInfo } = req.body;
+  const { 
+    selectedServices, 
+    message, 
+    contactInfo, 
+    pickupLocation, 
+    dropoffLocation, 
+    pickupLocationCoords, 
+    dropoffLocationCoords,
+    requestType,
+    preferredDate,
+    isDateFlexible
+  } = req.body;
+
+  console.log('🎯 Special Request - Full Body:', req.body);
 
   try {
+    // Calculate distance if coordinates are provided
+    let distanceData = null;
+    if (pickupLocationCoords && dropoffLocationCoords) {
+      console.log('🛣️ Calculating distance for special request...');
+      console.log('📍 From:', pickupLocationCoords, 'To:', dropoffLocationCoords);
+      
+      try {
+        distanceData = await calculateDistanceBetweenLocations(pickupLocationCoords, dropoffLocationCoords);
+        
+        if (distanceData.success) {
+          console.log('✅ Distance calculated successfully:', {
+            distance: `${distanceData.distanceKm} km`,
+            duration: distanceData.durationText,
+            provider: distanceData.provider
+          });
+        } else {
+          console.log('⚠️ Distance calculation failed:', distanceData.error);
+          // Continue with request even if distance calculation fails
+        }
+      } catch (distanceError) {
+        console.error('❌ Distance calculation error:', distanceError);
+        // Continue with request even if distance calculation fails
+      }
+    } else {
+      console.log('📍 No coordinates provided, skipping distance calculation');
+    }
+
+    // Prepare data for database insertion
+    const insertData = {
+      selected_services: selectedServices,
+      message: message,
+      contact_info: contactInfo,
+      pickup_location: pickupLocation || null,
+      dropoff_location: dropoffLocation || null,
+      pickup_location_coords: pickupLocationCoords || null,
+      dropoff_location_coords: dropoffLocationCoords || null,
+      request_type: requestType || null,
+      preferred_date: preferredDate || null,
+      is_date_flexible: Boolean(isDateFlexible),
+      created_at: new Date().toISOString()
+    };
+
+    // Add distance data if available
+    if (distanceData && distanceData.success) {
+      insertData.calculated_distance_km = distanceData.distanceKm;
+      insertData.calculated_duration_seconds = distanceData.duration;
+      insertData.calculated_duration_text = distanceData.durationText;
+      insertData.distance_provider = distanceData.provider;
+    }
+
+    console.log('💾 Inserting special request into database...');
+
     const { data, error } = await supabase
       .from('services')
-      .insert([{ selected_services: selectedServices, message, contact_info: contactInfo }])
+      .insert([insertData])
       .select();
 
     if (error) {
-      console.error('Error creating special request:', error);
-      return res.status(500).json({ error: 'Failed to save special request.' });
+      console.error('❌ Database insert error:', error);
+      return res.status(500).json({ 
+        error: 'Failed to save special request.',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
 
-    res.status(201).json({ message: 'Special request saved successfully.' });
+    console.log('✅ Special request saved successfully');
+
+    // Return response with distance data included
+    const response = {
+      message: 'Special request saved successfully.',
+      data: data[0],
+      distanceCalculation: distanceData && distanceData.success ? {
+        success: true,
+        distance: distanceData.distanceText,
+        duration: distanceData.durationText,
+        provider: distanceData.provider
+      } : null
+    };
+
+    res.status(201).json(response);
   } catch (err) {
-    console.error('Error in special request endpoint:', err);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error('❌ Error in special request endpoint:', err);
+    res.status(500).json({ 
+      error: 'Internal Server Error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
-// 8. Mark Furniture as Sold and Move to Sold Items
+// 8. Item Donation Request Endpoint with Distance Calculation
+app.post('/api/item-donation-requests', async (req, res) => {
+  try {
+    const {
+      donationItems,
+      customItem,
+      contactInfo,
+      pickupLocation,
+      donationLocation,
+      pickupLocationCoords,
+      donationLocationCoords,
+      preferredPickupDate,
+      isDateFlexible,
+      donationType,
+      specialInstructions,
+      organizationName,
+      organizationContact,
+      totalEstimatedValue,
+      itemCondition,
+      photoUrls
+    } = req.body;
+
+    console.log('🎁 Item Donation Request - Full Body:', req.body);
+
+    // Validate required fields
+    if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
+      return res.status(400).json({ error: 'Contact information is required' });
+    }
+
+    if (!donationItems || (Array.isArray(donationItems) && donationItems.length === 0)) {
+      return res.status(400).json({ error: 'At least one donation item is required' });
+    }
+
+    // Calculate distance if coordinates are provided
+    let distanceData = null;
+    if (pickupLocationCoords && donationLocationCoords) {
+      console.log('🛣️ Calculating distance for item donation request...');
+      console.log('📍 From:', pickupLocationCoords, 'To:', donationLocationCoords);
+      
+      try {
+        distanceData = await calculateDistanceBetweenLocations(pickupLocationCoords, donationLocationCoords);
+        
+        if (distanceData.success) {
+          console.log('✅ Distance calculated successfully:', {
+            distance: `${distanceData.distanceKm} km`,
+            duration: distanceData.durationText,
+            provider: distanceData.provider
+          });
+        } else {
+          console.log('⚠️ Distance calculation failed:', distanceData.error);
+          // Continue with request even if distance calculation fails
+        }
+      } catch (distanceError) {
+        console.error('❌ Distance calculation error:', distanceError);
+        // Continue with request even if distance calculation fails
+      }
+    } else {
+      console.log('📍 No coordinates provided, skipping distance calculation');
+    }
+
+    // Prepare data for database insertion
+    const insertData = {
+      donation_items: donationItems,
+      custom_item: customItem || null,
+      contact_info: contactInfo,
+      pickup_location: pickupLocation || null,
+      donation_location: donationLocation || null,
+      pickup_location_coords: pickupLocationCoords || null,
+      donation_location_coords: donationLocationCoords || null,
+      preferred_pickup_date: preferredPickupDate || null,
+      is_date_flexible: Boolean(isDateFlexible),
+      donation_type: donationType || 'charity', // charity, recycling, other
+      special_instructions: specialInstructions || null,
+      organization_name: organizationName || null,
+      organization_contact: organizationContact || null,
+      total_estimated_value: totalEstimatedValue ? parseFloat(totalEstimatedValue) : null,
+      item_condition: itemCondition || null,
+      photo_urls: photoUrls || [],
+      status: 'pending',
+      created_at: new Date().toISOString()
+    };
+
+    // Add distance data if available
+    if (distanceData && distanceData.success) {
+      insertData.calculated_distance_km = distanceData.distanceKm;
+      insertData.calculated_duration_seconds = distanceData.duration;
+      insertData.calculated_duration_text = distanceData.durationText;
+      insertData.distance_provider = distanceData.provider;
+    }
+
+    console.log('💾 Inserting item donation request into database...');
+
+    const { data, error } = await supabase
+      .from('item_donations')
+      .insert([insertData])
+      .select();
+
+    if (error) {
+      console.error('❌ Database insert error:', error);
+      
+      // If table doesn't exist, provide helpful error message
+      if (error.code === 'PGRST116' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
+        console.log('⚠️ Item donations table does not exist. Please create it first.');
+        return res.status(500).json({ 
+          error: 'Item donations table not found. Please contact administrator to set up the database table.',
+          details: 'The item_donations table needs to be created in the database.'
+        });
+      }
+      
+      return res.status(500).json({ 
+        error: 'Failed to save donation request.',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
+    console.log('✅ Item donation request saved successfully');
+
+    // Send confirmation email (optional - would need to implement sendDonationRequestEmail function)
+    try {
+      console.log('📧 Sending donation confirmation email...');
+      // TODO: Implement sendDonationRequestEmail function similar to sendMovingRequestEmail
+      // const emailResult = await sendDonationRequestEmail({
+      //   customerEmail: contactInfo.email,
+      //   customerFirstName: contactInfo.firstName,
+      //   customerLastName: contactInfo.lastName,
+      //   donationType,
+      //   pickupLocation,
+      //   donationLocation,
+      //   preferredPickupDate,
+      //   donationItems,
+      //   distanceInfo: distanceData && distanceData.success ? {
+      //     distance: distanceData.distanceText,
+      //     duration: distanceData.durationText
+      //   } : null
+      // });
+      
+      console.log('📧 Email functionality not yet implemented for donations');
+    } catch (emailError) {
+      console.error('❌ Error sending donation confirmation email:', emailError);
+    }
+
+    // Return response with distance data included
+    const response = {
+      message: 'Item donation request saved successfully.',
+      data: data[0],
+      distanceCalculation: distanceData && distanceData.success ? {
+        success: true,
+        distance: distanceData.distanceText,
+        duration: distanceData.durationText,
+        provider: distanceData.provider
+      } : null
+    };
+
+    res.status(201).json(response);
+  } catch (err) {
+    console.error('❌ Error in item donation endpoint:', err);
+    res.status(500).json({ 
+      error: 'Internal Server Error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+// Get item donation requests (admin endpoint)
+app.get('/api/item-donation-requests', authenticateUser, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    console.log('📋 Fetching item donation requests for user:', userEmail);
+
+    let query = supabase
+      .from('item_donations')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    // If not admin, filter by user's email
+    if (!isAdmin(userEmail)) {
+      query = query.eq('contact_info->>email', userEmail);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('❌ Error fetching donation requests:', error);
+      
+      // If table doesn't exist, return empty array for now
+      if (error.code === 'PGRST116' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
+        console.log('⚠️ Item donations table does not exist yet');
+        return res.json([]);
+      }
+      
+      return res.status(500).json({ 
+        error: 'Failed to fetch donation requests',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
+    console.log('✅ Found donation requests:', data?.length || 0);
+    res.json(data || []);
+  } catch (err) {
+    console.error('❌ Error fetching donation requests:', err);
+    res.status(500).json({ 
+      error: 'Internal Server Error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+// Update item donation request status (admin endpoint)
+app.put('/api/item-donation-requests/:id/status', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, adminNotes } = req.body;
+    const userEmail = req.user.email;
+
+    if (!isAdmin(userEmail)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!['pending', 'approved', 'rejected', 'completed', 'cancelled'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    console.log('📝 Updating donation request status:', { id, status, adminNotes });
+
+    const { data, error } = await supabase
+      .from('item_donations')
+      .update({ 
+        status, 
+        admin_notes: adminNotes || null,
+        updated_at: new Date().toISOString(),
+        updated_by: userEmail
+      })
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      console.error('❌ Error updating donation status:', error);
+      return res.status(500).json({ 
+        error: 'Failed to update donation status',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
+    console.log('✅ Donation status updated successfully');
+    res.json({ message: 'Donation status updated successfully', data: data[0] });
+  } catch (err) {
+    console.error('❌ Error updating donation status:', err);
+    res.status(500).json({ 
+      error: 'Internal Server Error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+// 9. Mark Furniture as Sold and Move to Sold Items
 app.post('/api/furniture/sold/:id', authenticateUser, async (req, res) => {
     const furnitureId = req.params.id;
 
@@ -2628,18 +3103,16 @@ function calculatePricingBreakdown(params) {
     };
 }
 
-// ==================== DISTANCE CALCULATION ENDPOINT ====================
+// ==================== DISTANCE CALCULATION HELPER FUNCTION ====================
 
-// Calculate road distance between two locations using Google Routes API with OpenRouteService fallback
-app.post('/api/calculate-distance', async (req, res) => {
+// Helper function to calculate distance between two locations
+const calculateDistanceBetweenLocations = async (origin, destination) => {
     try {
-        const { origin, destination, originPlaceId, destinationPlaceId } = req.body;
-
         if (!origin || !destination) {
-            return res.status(400).json({
+            return {
                 success: false,
                 error: 'Origin and destination are required'
-            });
+            };
         }
 
         console.log('🛣️ Calculating road distance from:', origin, 'to:', destination);
@@ -2715,7 +3188,7 @@ app.post('/api/calculate-distance', async (req, res) => {
                         durationText = `${minutes} min${minutes !== 1 ? 's' : ''}`;
                     }
 
-                    return res.json({
+                    return {
                         success: true,
                         distance: distanceMeters,
                         distanceKm: Math.round(distanceKm * 100) / 100,
@@ -2725,7 +3198,7 @@ app.post('/api/calculate-distance', async (req, res) => {
                         origin: origin,
                         destination: destination,
                         provider: 'Google Routes API'
-                    });
+                    };
                 }
             } catch (googleError) {
                 console.log('⚠️ Google Routes API failed:', googleError.message);
@@ -2772,7 +3245,7 @@ app.post('/api/calculate-distance', async (req, res) => {
                     durationText = `${minutes} min${minutes !== 1 ? 's' : ''}`;
                 }
 
-                return res.json({
+                return {
                     success: true,
                     distance: distanceMeters,
                     distanceKm: Math.round(distanceKm * 100) / 100,
@@ -2782,7 +3255,7 @@ app.post('/api/calculate-distance', async (req, res) => {
                     origin: origin,
                     destination: destination,
                     provider: 'OpenRouteService'
-                });
+                };
             } else {
                 throw new Error('No routes found in OpenRouteService response');
             }
@@ -2791,26 +3264,52 @@ app.post('/api/calculate-distance', async (req, res) => {
             console.error('❌ OpenRouteService also failed:', openRouteError.message);
             
             // If both services fail, return error
-            return res.status(500).json({
+            return {
                 success: false,
                 error: 'All distance calculation services failed',
                 details: process.env.NODE_ENV === 'development' ? {
                     googleError: apiKey ? 'Google Routes API failed' : 'No Google API key',
                     openRouteError: openRouteError.message
                 } : undefined
-            });
+            };
         }
 
     } catch (error) {
         console.error('❌ Unexpected error calculating distance:', error.message);
         
         if (error.code === 'ECONNABORTED') {
-            return res.status(408).json({
+            return {
                 success: false,
                 error: 'Request timeout - Distance calculation service took too long to respond'
-            });
+            };
         }
 
+        return {
+            success: false,
+            error: 'Failed to calculate distance',
+            details: process.env.NODE_ENV === 'development' ? {
+                message: error.message
+            } : undefined
+        };
+    }
+};
+
+// ==================== DISTANCE CALCULATION ENDPOINT ====================
+
+// Calculate road distance between two locations using Google Routes API with OpenRouteService fallback
+app.post('/api/calculate-distance', async (req, res) => {
+    try {
+        const { origin, destination, originPlaceId, destinationPlaceId } = req.body;
+
+        const result = await calculateDistanceBetweenLocations(origin, destination);
+        
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        console.error('❌ Distance calculation endpoint error:', error.message);
         res.status(500).json({
             success: false,
             error: 'Failed to calculate distance',
@@ -3676,6 +4175,368 @@ app.get('/api/furniture/sold', authenticateUser, async (req, res) => {
         });
     }
 });
+
+// ==================== COST-EFFECTIVE LOCATION AUTOCOMPLETE ====================
+
+// Get location suggestions from database and hardcoded cities (no external API costs)
+app.get('/api/locations/autocomplete', async (req, res) => {
+  try {
+    const { q, limit = 10 } = req.query;
+    
+    if (!q || q.length < 2) {
+      return res.json([]);
+    }
+    
+    const query = q.toLowerCase().trim();
+    console.log('🔍 Location autocomplete query:', query);
+    
+    // Comprehensive Dutch cities database with coordinates
+    const dutchCitiesDatabase = {
+      // Major cities
+      'amsterdam': { lat: 52.3676, lon: 4.9041, postcode: '1000' },
+      'rotterdam': { lat: 51.9225, lon: 4.4792, postcode: '3000' },
+      'den haag': { lat: 52.0705, lon: 4.3007, postcode: '2500' },
+      'the hague': { lat: 52.0705, lon: 4.3007, postcode: '2500' },
+      'utrecht': { lat: 52.0907, lon: 5.1214, postcode: '3500' },
+      'eindhoven': { lat: 51.4416, lon: 5.4697, postcode: '5600' },
+      'tilburg': { lat: 51.5555, lon: 5.0913, postcode: '5000' },
+      'groningen': { lat: 53.2194, lon: 6.5665, postcode: '9700' },
+      'almere': { lat: 52.3508, lon: 5.2647, postcode: '1300' },
+      'breda': { lat: 51.5719, lon: 4.7683, postcode: '4800' },
+      'nijmegen': { lat: 51.8426, lon: 5.8518, postcode: '6500' },
+      'enschede': { lat: 52.2232, lon: 6.8937, postcode: '7500' },
+      'haarlem': { lat: 52.3874, lon: 4.6462, postcode: '2000' },
+      'arnhem': { lat: 51.9851, lon: 5.8987, postcode: '6800' },
+      'zaanstad': { lat: 52.4389, lon: 4.8167, postcode: '1500' },
+      'amersfoort': { lat: 52.1561, lon: 5.3878, postcode: '3800' },
+      'apeldoorn': { lat: 52.2112, lon: 5.9699, postcode: '7300' },
+      'hoofddorp': { lat: 52.3030, lon: 4.6890, postcode: '2130' },
+      'maastricht': { lat: 50.8514, lon: 5.6910, postcode: '6200' },
+      'leiden': { lat: 52.1601, lon: 4.4970, postcode: '2300' },
+      'dordrecht': { lat: 51.8133, lon: 4.6901, postcode: '3300' },
+      'zoetermeer': { lat: 52.0575, lon: 4.4935, postcode: '2700' },
+      'zwolle': { lat: 52.5168, lon: 6.0830, postcode: '8000' },
+      'deventer': { lat: 52.2551, lon: 6.1639, postcode: '7400' },
+      'delft': { lat: 52.0116, lon: 4.3571, postcode: '2600' },
+      'alkmaar': { lat: 52.6318, lon: 4.7483, postcode: '1800' },
+      'leeuwarden': { lat: 53.2012, lon: 5.8086, postcode: '8900' },
+      'venlo': { lat: 51.3704, lon: 6.1724, postcode: '5900' },
+      'oss': { lat: 51.7649, lon: 5.5178, postcode: '5340' },
+      'roosendaal': { lat: 51.5308, lon: 4.4653, postcode: '4700' },
+      'emmen': { lat: 52.7795, lon: 6.9093, postcode: '7800' },
+      'hilversum': { lat: 52.2242, lon: 5.1758, postcode: '1200' },
+      'kampen': { lat: 52.5551, lon: 5.9114, postcode: '8260' },
+      'helmond': { lat: 51.4816, lon: 5.6611, postcode: '5700' },
+      'gouda': { lat: 52.0115, lon: 4.7077, postcode: '2800' },
+      'purmerend': { lat: 52.5050, lon: 4.9592, postcode: '1440' },
+      'vlaardingen': { lat: 51.9128, lon: 4.3418, postcode: '3130' },
+      'alphen aan den rijn': { lat: 52.1265, lon: 4.6575, postcode: '2400' },
+      'spijkenisse': { lat: 51.8447, lon: 4.3298, postcode: '3200' },
+      'hoorn': { lat: 52.6425, lon: 5.0597, postcode: '1620' },
+      'ede': { lat: 52.0341, lon: 5.6580, postcode: '6710' },
+      'leidschendam': { lat: 52.0894, lon: 4.3890, postcode: '2260' },
+      'woerden': { lat: 52.0852, lon: 4.8836, postcode: '3440' },
+      'schiedam': { lat: 51.9192, lon: 4.3886, postcode: '3100' },
+      'lelystad': { lat: 52.5084, lon: 5.4750, postcode: '8200' },
+      'tiel': { lat: 51.8861, lon: 5.4306, postcode: '4000' },
+      'barneveld': { lat: 52.1386, lon: 5.5914, postcode: '3770' },
+      'veenendaal': { lat: 52.0287, lon: 5.5636, postcode: '3900' },
+      'doetinchem': { lat: 51.9648, lon: 6.2886, postcode: '7000' },
+      'almelo': { lat: 52.3507, lon: 6.6678, postcode: '7600' },
+      'nieuwegein': { lat: 52.0209, lon: 5.0937, postcode: '3430' },
+      'zeist': { lat: 52.0889, lon: 5.2317, postcode: '3700' },
+      's-hertogenbosch': { lat: 51.6906, lon: 5.2936, postcode: '5200' },
+      'den bosch': { lat: 51.6906, lon: 5.2936, postcode: '5200' }
+    };
+    
+    let suggestions = [];
+    
+    // 1. Get cities from database (marketplace furniture cities)
+    try {
+      console.log('🔄 Searching database cities...');
+      const { data: dbCities, error: dbError } = await supabaseClient
+        .from('marketplace_furniture')
+        .select('city_name')
+        .ilike('city_name', `%${query}%`)
+        .limit(parseInt(limit));
+      
+      if (!dbError && dbCities) {
+        const uniqueDbCities = [...new Set(dbCities.map(item => item.city_name))];
+        console.log('📋 Found database cities:', uniqueDbCities.length);
+        
+        suggestions.push(...uniqueDbCities.map(city => {
+          const cityKey = city.toLowerCase();
+          const coords = dutchCitiesDatabase[cityKey] || { lat: 52.1, lon: 5.1, postcode: '0000' };
+          
+          return {
+            display_name: `${city}, Netherlands`,
+            lat: coords.lat.toString(),
+            lon: coords.lon.toString(),
+            place_id: `db_${cityKey}`,
+            address: {
+              city: city,
+              postcode: coords.postcode,
+              country: 'Netherlands'
+            },
+            source: 'database'
+          };
+        }));
+      }
+    } catch (dbError) {
+      console.log('⚠️ Database city search failed:', dbError.message);
+    }
+    
+    // 2. Get cities from pricing database
+    try {
+      console.log('🔄 Searching pricing cities...');
+      const { data: pricingCities, error: pricingError } = await supabaseClient
+        .from('city_base_charges')
+        .select('city_name')
+        .ilike('city_name', `%${query}%`)
+        .limit(parseInt(limit));
+      
+      if (!pricingError && pricingCities) {
+        console.log('📋 Found pricing cities:', pricingCities.length);
+        
+        suggestions.push(...pricingCities.map(item => {
+          const city = item.city_name;
+          const cityKey = city.toLowerCase();
+          const coords = dutchCitiesDatabase[cityKey] || { lat: 52.1, lon: 5.1, postcode: '0000' };
+          
+          return {
+            display_name: `${city}, Netherlands`,
+            lat: coords.lat.toString(),
+            lon: coords.lon.toString(),
+            place_id: `pricing_${cityKey}`,
+            address: {
+              city: city,
+              postcode: coords.postcode,
+              country: 'Netherlands'
+            },
+            source: 'pricing'
+          };
+        }));
+      }
+    } catch (pricingError) {
+      console.log('⚠️ Pricing city search failed:', pricingError.message);
+    }
+    
+    // 3. Search hardcoded Dutch cities database
+    console.log('🔄 Searching hardcoded cities...');
+    const hardcodedMatches = Object.entries(dutchCitiesDatabase)
+      .filter(([cityKey, coords]) => 
+        cityKey.includes(query) || 
+        cityKey.startsWith(query)
+      )
+      .sort(([a], [b]) => {
+        // Prioritize starts-with matches
+        const aStarts = a.startsWith(query);
+        const bStarts = b.startsWith(query);
+        if (aStarts && !bStarts) return -1;
+        if (!aStarts && bStarts) return 1;
+        return a.length - b.length; // Then sort by length
+      })
+      .slice(0, parseInt(limit))
+      .map(([cityKey, coords]) => {
+        const cityName = cityKey.charAt(0).toUpperCase() + cityKey.slice(1);
+        return {
+          display_name: `${cityName}, Netherlands`,
+          lat: coords.lat.toString(),
+          lon: coords.lon.toString(),
+          place_id: `hardcoded_${cityKey}`,
+          address: {
+            city: cityName,
+            postcode: coords.postcode,
+            country: 'Netherlands'
+          },
+          source: 'hardcoded'
+        };
+      });
+    
+    suggestions.push(...hardcodedMatches);
+    console.log('📋 Found hardcoded cities:', hardcodedMatches.length);
+    
+    // 4. Remove duplicates and prioritize
+    const seen = new Set();
+    const uniqueSuggestions = suggestions.filter(suggestion => {
+      const key = suggestion.address.city.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    
+    // 5. Sort by relevance and source priority
+    uniqueSuggestions.sort((a, b) => {
+      const aCity = a.address.city.toLowerCase();
+      const bCity = b.address.city.toLowerCase();
+      
+      // Exact matches first
+      if (aCity === query && bCity !== query) return -1;
+      if (aCity !== query && bCity === query) return 1;
+      
+      // Starts with query
+      if (aCity.startsWith(query) && !bCity.startsWith(query)) return -1;
+      if (!aCity.startsWith(query) && bCity.startsWith(query)) return 1;
+      
+      // Source priority: database > pricing > hardcoded
+      const sourcePriority = { database: 0, pricing: 1, hardcoded: 2 };
+      const aPriority = sourcePriority[a.source] || 3;
+      const bPriority = sourcePriority[b.source] || 3;
+      if (aPriority !== bPriority) return aPriority - bPriority;
+      
+      // Length (shorter first)
+      return aCity.length - bCity.length;
+    });
+    
+    // 6. Limit results
+    const finalSuggestions = uniqueSuggestions.slice(0, parseInt(limit));
+    
+    console.log('✅ Returning location suggestions:', {
+      query,
+      total: finalSuggestions.length,
+      sources: finalSuggestions.reduce((acc, s) => {
+        acc[s.source] = (acc[s.source] || 0) + 1;
+        return acc;
+      }, {})
+    });
+    
+    res.json(finalSuggestions);
+    
+  } catch (error) {
+    console.error('❌ Location autocomplete error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch location suggestions',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Get popular locations (most used cities in marketplace)
+app.get('/api/locations/popular', async (req, res) => {
+  try {
+    const { limit = 10 } = req.query;
+    
+    console.log('📊 Fetching popular locations...');
+    
+    // Get most common cities from marketplace furniture
+    const { data: popularCities, error } = await supabaseClient
+      .from('marketplace_furniture')
+      .select('city_name')
+      .not('city_name', 'is', null)
+      .limit(1000); // Get a good sample
+    
+    if (error) {
+      console.error('❌ Error fetching popular cities:', error);
+      // Return fallback popular Dutch cities
+      const fallbackCities = [
+        'Amsterdam', 'Rotterdam', 'Utrecht', 'Den Haag', 'Eindhoven',
+        'Tilburg', 'Groningen', 'Almere', 'Breda', 'Nijmegen'
+      ];
+      
+      return res.json(fallbackCities.slice(0, parseInt(limit)).map(city => ({
+        city_name: city,
+        count: 0,
+        coordinates: { lat: 52.1, lon: 5.1 }
+      })));
+    }
+    
+    // Count occurrences
+    const cityCounts = {};
+    popularCities.forEach(item => {
+      const city = item.city_name;
+      cityCounts[city] = (cityCounts[city] || 0) + 1;
+    });
+    
+    // Sort by count and format response
+    const sortedCities = Object.entries(cityCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, parseInt(limit))
+      .map(([city, count]) => ({
+        city_name: city,
+        count,
+        coordinates: { lat: 52.1, lon: 5.1 } // Generic Netherlands coordinates
+      }));
+    
+    console.log('✅ Popular cities:', sortedCities.map(c => `${c.city_name} (${c.count})`));
+    res.json(sortedCities);
+    
+  } catch (error) {
+    console.error('❌ Popular locations error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch popular locations',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Get all available cities (for dropdown/filter purposes)
+app.get('/api/locations/cities', async (req, res) => {
+  try {
+    console.log('🏙️ Fetching all available cities...');
+    
+    // Get unique cities from multiple sources
+    const sources = await Promise.allSettled([
+      // Marketplace cities
+      supabaseClient
+        .from('marketplace_furniture')
+        .select('city_name')
+        .not('city_name', 'is', null),
+      
+      // Pricing cities
+      supabaseClient
+        .from('city_base_charges')
+        .select('city_name')
+        .not('city_name', 'is', null),
+      
+      // City day data
+      supabaseClient
+        .from('city_day_data')
+        .select('city_name')
+        .not('city_name', 'is', null)
+    ]);
+    
+    const allCities = new Set();
+    
+    // Process results from all sources
+    sources.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value.data) {
+        result.value.data.forEach(item => {
+          if (item.city_name) {
+            allCities.add(item.city_name);
+          }
+        });
+      } else {
+        console.log(`⚠️ Source ${index} failed:`, result.reason?.message);
+      }
+    });
+    
+    // Add hardcoded cities as fallback
+    const hardcodedCities = [
+      'Amsterdam', 'Rotterdam', 'Den Haag', 'Utrecht', 'Eindhoven',
+      'Tilburg', 'Groningen', 'Almere', 'Breda', 'Nijmegen',
+      'Haarlem', 'Arnhem', 'Enschede', 'Amersfoort', 'Apeldoorn',
+      'Hoofddorp', 'Maastricht', 'Leiden', 'Dordrecht', 'Zoetermeer',
+      'Zwolle', 'Deventer', 'Delft', 'Alkmaar', 'Leeuwarden'
+    ];
+    
+    hardcodedCities.forEach(city => allCities.add(city));
+    
+    // Convert to sorted array
+    const sortedCities = Array.from(allCities).sort();
+    
+    console.log('✅ Available cities:', sortedCities.length);
+    res.json(sortedCities);
+    
+  } catch (error) {
+    console.error('❌ All cities error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch cities',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// ==================== END LOCATION AUTOCOMPLETE ====================
 
 export default app;
 
