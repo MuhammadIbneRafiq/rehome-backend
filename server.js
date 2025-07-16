@@ -2628,6 +2628,199 @@ function calculatePricingBreakdown(params) {
     };
 }
 
+// ==================== DISTANCE CALCULATION ENDPOINT ====================
+
+// Calculate road distance between two locations using Google Routes API with OpenRouteService fallback
+app.post('/api/calculate-distance', async (req, res) => {
+    try {
+        const { origin, destination, originPlaceId, destinationPlaceId } = req.body;
+
+        if (!origin || !destination) {
+            return res.status(400).json({
+                success: false,
+                error: 'Origin and destination are required'
+            });
+        }
+
+        console.log('🛣️ Calculating road distance from:', origin, 'to:', destination);
+
+        // Parse coordinates from origin and destination
+        const [originLat, originLng] = origin.split(',').map(parseFloat);
+        const [destLat, destLng] = destination.split(',').map(parseFloat);
+
+        // First, try Google Routes API
+        const apiKey = process.env.GOOGLE_MAPS_API || process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API;
+        
+        if (apiKey) {
+            try {
+                console.log('🔵 Trying Google Routes API...');
+                
+                const requestBody = {
+                    origin: {
+                        location: {
+                            latLng: {
+                                latitude: originLat,
+                                longitude: originLng
+                            }
+                        }
+                    },
+                    destination: {
+                        location: {
+                            latLng: {
+                                latitude: destLat,
+                                longitude: destLng
+                            }
+                        }
+                    },
+                    travelMode: 'DRIVE',
+                    routingPreference: 'TRAFFIC_UNAWARE',
+                    computeAlternativeRoutes: false,
+                    routeModifiers: {
+                        avoidTolls: true,
+                        avoidHighways: false,
+                        avoidFerries: false
+                    },
+                    languageCode: 'en-US',
+                    units: 'METRIC'
+                };
+
+                const response = await axios.post(
+                    'https://routes.googleapis.com/directions/v2:computeRoutes',
+                    requestBody,
+                    {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Goog-Api-Key': apiKey,
+                            'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline'
+                        },
+                        timeout: 10000 // 10 second timeout
+                    }
+                );
+
+                if (response.data.routes && response.data.routes.length > 0) {
+                    const route = response.data.routes[0];
+                    const distanceMeters = route.distanceMeters;
+                    const distanceKm = distanceMeters / 1000;
+                    const durationSeconds = parseInt(route.duration.replace('s', ''));
+
+                    console.log('✅ Google Routes API success:', distanceKm.toFixed(2), 'km');
+
+                    // Format duration for display
+                    const hours = Math.floor(durationSeconds / 3600);
+                    const minutes = Math.floor((durationSeconds % 3600) / 60);
+                    let durationText = '';
+                    if (hours > 0) {
+                        durationText = `${hours} hour${hours > 1 ? 's' : ''} ${minutes} min${minutes !== 1 ? 's' : ''}`;
+                    } else {
+                        durationText = `${minutes} min${minutes !== 1 ? 's' : ''}`;
+                    }
+
+                    return res.json({
+                        success: true,
+                        distance: distanceMeters,
+                        distanceKm: Math.round(distanceKm * 100) / 100,
+                        duration: durationSeconds,
+                        durationText: durationText,
+                        distanceText: `${distanceKm.toFixed(1)} km`,
+                        origin: origin,
+                        destination: destination,
+                        provider: 'Google Routes API'
+                    });
+                }
+            } catch (googleError) {
+                console.log('⚠️ Google Routes API failed:', googleError.message);
+                console.log('🔄 Falling back to OpenRouteService...');
+            }
+        } else {
+            console.log('⚠️ No Google Maps API key found, using OpenRouteService...');
+        }
+
+        // Fallback to OpenRouteService
+        try {
+            console.log('🟡 Trying OpenRouteService...');
+            
+            // OpenRouteService expects coordinates as lng,lat (opposite of lat,lng)
+            const openRouteUrl = `https://api.openrouteservice.org/v2/directions/driving-car`;
+            const params = {
+                start: `${originLng},${originLat}`,
+                end: `${destLng},${destLat}`
+            };
+
+            const response = await axios.get(openRouteUrl, {
+                params: params,
+                timeout: 10000,
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+
+            if (response.data.features && response.data.features.length > 0) {
+                const route = response.data.features[0];
+                const distanceMeters = route.properties.segments[0].distance;
+                const durationSeconds = route.properties.segments[0].duration;
+                const distanceKm = distanceMeters / 1000;
+
+                console.log('✅ OpenRouteService success:', distanceKm.toFixed(2), 'km');
+
+                // Format duration for display
+                const hours = Math.floor(durationSeconds / 3600);
+                const minutes = Math.floor((durationSeconds % 3600) / 60);
+                let durationText = '';
+                if (hours > 0) {
+                    durationText = `${hours} hour${hours > 1 ? 's' : ''} ${minutes} min${minutes !== 1 ? 's' : ''}`;
+                } else {
+                    durationText = `${minutes} min${minutes !== 1 ? 's' : ''}`;
+                }
+
+                return res.json({
+                    success: true,
+                    distance: distanceMeters,
+                    distanceKm: Math.round(distanceKm * 100) / 100,
+                    duration: durationSeconds,
+                    durationText: durationText,
+                    distanceText: `${distanceKm.toFixed(1)} km`,
+                    origin: origin,
+                    destination: destination,
+                    provider: 'OpenRouteService'
+                });
+            } else {
+                throw new Error('No routes found in OpenRouteService response');
+            }
+
+        } catch (openRouteError) {
+            console.error('❌ OpenRouteService also failed:', openRouteError.message);
+            
+            // If both services fail, return error
+            return res.status(500).json({
+                success: false,
+                error: 'All distance calculation services failed',
+                details: process.env.NODE_ENV === 'development' ? {
+                    googleError: apiKey ? 'Google Routes API failed' : 'No Google API key',
+                    openRouteError: openRouteError.message
+                } : undefined
+            });
+        }
+
+    } catch (error) {
+        console.error('❌ Unexpected error calculating distance:', error.message);
+        
+        if (error.code === 'ECONNABORTED') {
+            return res.status(408).json({
+                success: false,
+                error: 'Request timeout - Distance calculation service took too long to respond'
+            });
+        }
+
+        res.status(500).json({
+            success: false,
+            error: 'Failed to calculate distance',
+            details: process.env.NODE_ENV === 'development' ? {
+                message: error.message
+            } : undefined
+        });
+    }
+});
+
 // ==================== AUDIT LOGS ENDPOINTS ====================
 
 // Get audit logs
