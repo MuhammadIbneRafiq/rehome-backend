@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS item_donations (
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_item_donations_status ON item_donations(status);
 CREATE INDEX IF NOT EXISTS idx_item_donations_created_at ON item_donations(created_at);
-CREATE INDEX IF NOT EXISTS idx_item_donations_email ON item_donations USING GIN ((contact_info->>'email'));
+CREATE INDEX IF NOT EXISTS idx_item_donations_email ON item_donations ((contact_info->>'email'));
 CREATE INDEX IF NOT EXISTS idx_item_donations_pickup_date ON item_donations(preferred_pickup_date);
 
 -- Trigger to update updated_at timestamp
