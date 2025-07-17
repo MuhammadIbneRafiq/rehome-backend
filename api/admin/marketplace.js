@@ -6,7 +6,7 @@ const router = express.Router();
 
 // List of admin email addresses
 const ADMIN_EMAILS = [
-  'muhammadibnerafiq@gmail.com',
+  'muhammadibnerafiq123@gmail.com',
   'testnewuser12345@gmail.com',
   'egzmanagement@gmail.com',
   'samuel.stroehle8@gmail.com',
@@ -34,8 +34,9 @@ const authenticateAdmin = async (req, res, next) => {
             return res.status(403).json({ success: false, error: "Invalid token or user not found" });
         }
 
-        if (!isAdmin(user.user.email)) {
-            return res.status(403).json({ success: false, error: "Admin access required" });
+        // ONLY check if email is in admin list - nothing else
+        if (!ADMIN_EMAILS.includes(user.user.email)) {
+            return res.status(403).json({ success: false, error: `Access denied. Email ${user.user.email} is not in admin list` });
         }
 
         req.user = user.user;

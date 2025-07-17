@@ -79,9 +79,9 @@ const authenticateAdmin = async (req, res, next) => {
             const decoded = jwt.verify(token, jwtSecret);
             console.log('✅ Custom JWT token verified for admin check:', decoded.email);
             
-            // Check if user is admin
-            if (!isAdmin(decoded.email)) {
-                return res.status(403).json({ success: false, error: "Admin access required" });
+            // ONLY check if email is in admin list - nothing else
+            if (!ADMIN_EMAILS.includes(decoded.email)) {
+                return res.status(403).json({ success: false, error: `Access denied. Email ${decoded.email} is not in admin list` });
             }
 
             // Get user from database using the decoded info
@@ -116,8 +116,9 @@ const authenticateAdmin = async (req, res, next) => {
                 return res.status(403).json({ success: false, error: "Invalid token or user not found" });
             }
 
-            if (!isAdmin(user.user.email)) {
-                return res.status(403).json({ success: false, error: "Admin access required" });
+            // ONLY check if email is in admin list - nothing else
+            if (!ADMIN_EMAILS.includes(user.user.email)) {
+                return res.status(403).json({ success: false, error: `Access denied. Email ${user.user.email} is not in admin list` });
             }
 
             req.user = user.user;
