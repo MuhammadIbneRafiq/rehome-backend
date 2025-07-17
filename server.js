@@ -4539,6 +4539,34 @@ app.get('/api/locations/cities', async (req, res) => {
 
 // ==================== END LOCATION AUTOCOMPLETE ====================
 
+// Get all item moving requests
+app.get('/api/item-moving-requests', authenticateAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabaseClient
+      .from('item_moving')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch item moving requests' });
+  }
+});
+
+// Get all house moving requests
+app.get('/api/house-moving-requests', authenticateAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabaseClient
+      .from('house_moving')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch house moving requests' });
+  }
+});
+
 export default app;
 
 // Start the server only when running this file directly (for local development)
