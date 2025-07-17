@@ -141,6 +141,25 @@ BEGIN
     END IF;
 END $$;
 
+-- Ensure item_moving table has a primary key
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_name = 'item_moving' AND constraint_type = 'PRIMARY KEY'
+    ) THEN
+        -- Add id column if it does not exist
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'item_moving' AND column_name = 'id'
+        ) THEN
+            ALTER TABLE item_moving ADD COLUMN id SERIAL;
+        END IF;
+        -- Add primary key constraint
+        ALTER TABLE item_moving ADD PRIMARY KEY (id);
+    END IF;
+END $$;
+
 -- Create indexes if they don't exist
 CREATE INDEX IF NOT EXISTS idx_item_moving_email ON item_moving(email);
 CREATE INDEX IF NOT EXISTS idx_item_moving_pickuptype ON item_moving(pickuptype);
