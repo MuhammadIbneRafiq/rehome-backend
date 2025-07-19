@@ -39,18 +39,19 @@ export const sendReHomeOrderEmail = async (orderData) => {
     const mailOptions = {
       from: `"ReHome BV" <info@rehomebv.com>`,
       to: customerEmail,
-      subject: `Your ReHome Order Confirmation - #${orderNumber}`,
+      subject: `Second-Hand Furniture Delivery Request - #${orderNumber}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
           <div style="text-align: center; margin-bottom: 20px;">
-            <img src="https://rehomebv.com/logo.png" alt="ReHome Logo" style="max-width: 150px;">
+            <img src="https://rehomebv.com/assets/logorehome.png" alt="ReHome Logo" style="max-width: 150px;">
+
           </div>
           
           <h1 style="color: #ff6b35; text-align: center;">Thank You for Your Order!</h1>
           
           <p>Dear ${customerFirstName},</p>
           
-          <p>We're excited to confirm your ReHome order. Our team will review your order details and get back to you shortly with pricing and delivery information.</p>
+          <p>We have received your request and are now integrating it into our delivery schedule. Below is an overview of the next steps so you know what to expect:</p>
           
           <div style="background-color: #f9f9f9; border-radius: 5px; padding: 15px; margin: 20px 0;">
             <h2 style="margin-top: 0; color: #ff6b35; font-size: 18px;">Order Summary</h2>
@@ -80,9 +81,11 @@ export const sendReHomeOrderEmail = async (orderData) => {
           
           <h2 style="color: #ff6b35; font-size: 18px;">What's Next?</h2>
           <ol>
-            <li>Our team will review your order</li>
-            <li>We'll contact you with final pricing and delivery options</li>
-            <li>Once confirmed, we'll schedule your delivery</li>
+            <li>1️⃣ Order Received – Your order has been successfully placed, and we are reviewing the best possible delivery date.</li>
+            <li>2️⃣ Delivery Scheduling – Once we determine a delivery date, we will send you a final order confirmation email with the invoice and expected delivery date.</li>
+            <li>3️⃣ Delivery Timeline – We typically deliver within 1-2 weeks. If adjustments are needed, we will coordinate with you.</li>
+            <li>4️⃣ Completion – Your item(s) will be delivered. You can pay upon delivery with card or later by bank transfer.</li>
+            <li>⚠️ Important: If we cannot integrate your order into our schedule, we may need to cancel.</li>
           </ol>
           
           <p>If you have any questions about your order, please contact us:</p>
@@ -98,6 +101,9 @@ export const sendReHomeOrderEmail = async (orderData) => {
         </div>
       `
     };
+
+
+
 
     const result = await transporter.sendMail(mailOptions);
     console.log('✅ ReHome order email sent successfully:', result);
@@ -201,7 +207,7 @@ export const sendMovingRequestEmail = async (movingData) => {
     const mailOptions = {
       from: `"ReHome BV" <info@rehomebv.com>`,
       to: customerEmail,
-      subject: `Your ${serviceName} Request Confirmation`,
+      subject: `${serviceName} Request Confirmation`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="text-align: center; margin-bottom: 30px;">
@@ -213,15 +219,17 @@ export const sendMovingRequestEmail = async (movingData) => {
           
           <p>Dear ${customerFirstName} ${customerLastName},</p>
           
-          <p>We have successfully received your ${serviceName.toLowerCase()} request. Here are the details we have on file:</p>
+          <p>Thank you for your request! We have received your booking and will now review your preferred date and time to match it with our schedule. Below are the details we have on file:</p>
           
           ${orderSummaryHtml}
           
           <h2 style="color: #ff6b35; font-size: 18px;">What's Next?</h2>
-          <ol>
-            <li>We have received your request and are currently reviewing it.</li>
-            <li>Our team will carefully plan your move based on the details you provided.</li>
-            <li>We will send you a quote with the final price and a proposed date for your move.</li>
+          <ol style="margin: 0; padding-left: 1.2em;">
+            <li>1️⃣ Review – We will review your request and match it with our schedule.</li>
+            <li>2️⃣ Contact – You will receive a final quote and proposal via email or WhatsApp.</li>
+            <li>3️⃣ Arrange – If the proposed date/time does not work for you, please contact us via WhatsApp or Email with a screenshot of the mail. We will work together to find a suitable date.</li>
+            <li>4️⃣ Confirmation – Once we agree on a date and time, we will send you a confirmation email with an invoice.</li>
+            <li>5️⃣ Completion – We will carry out the service as scheduled. You can pay by card after the service was carried out or later by bank transfer.</li>
           </ol>
           
           <p>In the meantime, if you have any questions or need to provide additional information, please don't hesitate to contact us at <a href="mailto:info@rehomebv.com">info@rehomebv.com</a>.</p>
