@@ -126,11 +126,12 @@ router.post('/', async (req, res) => {
       
       await sendReHomeOrderEmail({
         orderNumber: order.order_number,
-        customerName: `${contactInfo.firstName} ${contactInfo.lastName}`,
+        customerFirstName: contactInfo.firstName,
+        customerLastName: contactInfo.lastName,
         customerEmail: contactInfo.email,
         customerPhone: contactInfo.phone,
         deliveryAddress,
-        deliveryFloor: floor || 0,
+        floor: floor || 0,
         elevatorAvailable: elevatorAvailable || false,
         items: items.map(item => ({
           name: item.name,
@@ -142,6 +143,7 @@ router.post('/', async (req, res) => {
           needsCarrying: item.assistance?.needsCarrying || false
         })),
         baseTotal,
+        assistanceCosts: carryingCost + assemblyCost,
         carryingCost,
         assemblyCost,
         totalAmount,
