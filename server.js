@@ -1229,43 +1229,7 @@ app.post('/api/item-moving-requests', async (req, res) => {
     });
 
 
-// ReHome order confirmation email endpoint
-app.post('/api/rehome-order/send-confirmation', async (req, res) => {
-  try {
-    const { 
-      orderNumber, 
-      items, 
-      totalAmount, 
-      customerInfo 
-    } = req.body;
-    
-    console.log('📧 Sending ReHome order confirmation email for order:', orderNumber);
-    
-    await sendReHomeOrderEmail({
-      orderNumber,
-      customerEmail: customerInfo.email,
-      customerFirstName: customerInfo.firstName || 'Valued Customer',
-      customerLastName: customerInfo.lastName || '',
-      items,
-      totalAmount
-    });
-        
-    return res.status(200).json({ 
-      success: true,
-      emailSent: true,
-      message: 'Order confirmation email sent successfully'
-    });
 
-
-    
-  } catch (error) {
-    console.error('❌ Error sending ReHome order confirmation email:', error);
-    res.status(500).json({ 
-      error: 'Failed to send order confirmation email',
-      details: error.message
-    });
-  }
-});
 
 // 2. Add a new furniture item
 app.post('/api/furniture', async (req, res) => {

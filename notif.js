@@ -23,7 +23,13 @@ export const sendReHomeOrderEmail = async (orderData) => {
     customerFirstName, 
     customerLastName,
     items,
-    totalAmount
+    totalAmount,
+    deliveryAddress,
+    floor,
+    elevatorAvailable,
+    baseTotal,
+    assistanceCosts,
+    pricingBreakdown
   } = orderData;
 
   try {
@@ -72,11 +78,47 @@ export const sendReHomeOrderEmail = async (orderData) => {
               </tbody>
               <tfoot>
                 <tr>
+                  <td colspan="2" style="text-align: right; padding: 8px; font-weight: bold;">Items Total:</td>
+                  <td style="padding: 8px; font-weight: bold;">€${(baseTotal || totalAmount).toFixed(2)}</td>
+                </tr>
+                ${(pricingBreakdown?.carryingCost > 0 || pricingBreakdown?.breakdown?.carrying?.totalCost > 0) ? `
+                <tr>
+                  <td colspan="2" style="text-align: right; padding: 8px;">Carrying Assistance:</td>
+                  <td style="padding: 8px;">€${(pricingBreakdown?.carryingCost || pricingBreakdown?.breakdown?.carrying?.totalCost || 0).toFixed(2)}</td>
+                </tr>
+                ` : ''}
+                ${(pricingBreakdown?.assemblyCost > 0 || pricingBreakdown?.breakdown?.assembly?.totalCost > 0) ? `
+                <tr>
+                  <td colspan="2" style="text-align: right; padding: 8px;">Assembly Assistance:</td>
+                  <td style="padding: 8px;">€${(pricingBreakdown?.assemblyCost || pricingBreakdown?.breakdown?.assembly?.totalCost || 0).toFixed(2)}</td>
+                </tr>
+                ` : ''}
+                <tr style="border-top: 2px solid #ff6b35;">
                   <td colspan="2" style="text-align: right; padding: 8px; font-weight: bold;">Total:</td>
                   <td style="padding: 8px; font-weight: bold;">€${totalAmount.toFixed(2)}</td>
                 </tr>
               </tfoot>
             </table>
+            
+            ${deliveryAddress && deliveryAddress !== 'To be provided' ? `
+            <h3 style="margin-top: 20px; color: #ff6b35; font-size: 16px;">Delivery Details</h3>
+            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px;">
+              <p style="margin: 5px 0;"><strong>Address:</strong> ${deliveryAddress}</p>
+              <p style="margin: 5px 0;"><strong>Floor:</strong> ${floor || 0} ${elevatorAvailable ? '(Elevator Available)' : ''}</p>
+            </div>
+            ` : ''}
+            
+            ${(pricingBreakdown?.carryingCost > 0 || pricingBreakdown?.assemblyCost > 0 || 
+               pricingBreakdown?.breakdown?.carrying?.totalCost > 0 || pricingBreakdown?.breakdown?.assembly?.totalCost > 0) ? `
+            <h3 style="margin-top: 20px; color: #ff6b35; font-size: 16px;">Delivery Add-ons</h3>
+            <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ff6b35;">
+              <p style="margin: 5px 0; font-weight: bold;">Our standard delivery is to the ground floor and certain items may be disassembled.</p>
+              ${(pricingBreakdown?.carryingCost > 0 || pricingBreakdown?.breakdown?.carrying?.totalCost > 0) ? 
+                `<p style="margin: 5px 0;">✅ Carrying assistance to floor ${floor || 0} requested</p>` : ''}
+              ${(pricingBreakdown?.assemblyCost > 0 || pricingBreakdown?.breakdown?.assembly?.totalCost > 0) ? 
+                `<p style="margin: 5px 0;">✅ Assembly assistance requested</p>` : ''}
+            </div>
+            ` : ''}
           </div>
           
           <h2 style="color: #ff6b35; font-size: 18px;">What's Next?</h2>

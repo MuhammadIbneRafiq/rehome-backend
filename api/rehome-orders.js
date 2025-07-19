@@ -1,5 +1,6 @@
 import express from 'express';
 import { supabaseClient as supabase } from '../db/params.js';
+import { sendReHomeOrderEmail } from '../notif.js';
 const router = express.Router();
 
 // Middleware to verify admin permissions
@@ -117,6 +118,40 @@ router.post('/', async (req, res) => {
       // Try to clean up the order if items failed
       await supabase.from('rehome_orders').delete().eq('id', order.id);
       return res.status(500).json({ error: 'Failed to create order items' });
+    }
+
+    // Send confirmation email
+    try {
+      console.log('📧 Sending ReHome order confirmation email for order:', orderNumber);
+      
+      await sendReHomeOrderEmail({
+        orderNumber: order.order_number,
+        customerName: `${contactInfo.firstName} ${contactInfo.lastName}`,
+        customerEmail: contactInfo.email,
+        customerPhone: contactInfo.phone,
+        deliveryAddress,
+        deliveryFloor: floor || 0,
+        elevatorAvailable: elevatorAvailable || false,
+        items: items.map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+          category: item.category,
+          subcategory: item.subcategory,
+          needsAssembly: item.assistance?.needsAssembly || false,
+          needsCarrying: item.assistance?.needsCarrying || false
+        })),
+        baseTotal,
+        carryingCost,
+        assemblyCost,
+        totalAmount,
+        pricingBreakdown
+      });
+      
+      console.log('✅ ReHome order confirmation email sent successfully');
+    } catch (emailError) {
+      console.error('❌ Error sending ReHome order confirmation email:', emailError);
+      // Don't fail the order creation if email fails
     }
 
     res.status(201).json({
