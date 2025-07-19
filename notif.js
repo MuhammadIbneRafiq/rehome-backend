@@ -224,13 +224,13 @@ export const sendMovingRequestEmail = async (movingData) => {
           ${orderSummaryHtml}
           
           <h2 style="color: #ff6b35; font-size: 18px;">What's Next?</h2>
-          <ol style="margin: 0; padding-left: 1.2em;">
-            <li>1️⃣ Review – We will review your request and match it with our schedule.</li>
-            <li>2️⃣ Contact – You will receive a final quote and proposal via email or WhatsApp.</li>
-            <li>3️⃣ Arrange – If the proposed date/time does not work for you, please contact us via WhatsApp or Email with a screenshot of the mail. We will work together to find a suitable date.</li>
-            <li>4️⃣ Confirmation – Once we agree on a date and time, we will send you a confirmation email with an invoice.</li>
-            <li>5️⃣ Completion – We will carry out the service as scheduled. You can pay by card after the service was carried out or later by bank transfer.</li>
-          </ol>
+          <div style="margin: 0; padding-left: 0;">
+            <div style="margin-bottom: 10px;">1️⃣ Review – We will review your request and match it with our schedule.</div>
+            <div style="margin-bottom: 10px;">2️⃣ Contact – You will receive a final quote and proposal via email or WhatsApp.</div>
+            <div style="margin-bottom: 10px;">3️⃣ Arrange – If the proposed date/time does not work for you, please contact us via WhatsApp or Email with a screenshot of the mail. We will work together to find a suitable date.</div>
+            <div style="margin-bottom: 10px;">4️⃣ Confirmation – Once we agree on a date and time, we will send you a confirmation email with an invoice.</div>
+            <div style="margin-bottom: 10px;">5️⃣ Completion – We will carry out the service as scheduled. You can pay by card after the service was carried out or later by bank transfer.</div>
+          </div>
           
           <p>In the meantime, if you have any questions or need to provide additional information, please don't hesitate to contact us at <a href="mailto:info@rehomebv.com">info@rehomebv.com</a>.</p>
           
