@@ -132,9 +132,10 @@ export const sendReHomeOrderEmail = async (orderData) => {
           
           <p>If you have any questions about your order, please contact us:</p>
           <ul style="list-style-type: none; padding-left: 0;">
+            <li><strong>WhatsApp:</strong> <a href="https://wa.me/31645839273" style="color: #ff6b35;">+31 645 839 273</a></li>
             <li><strong>Email:</strong> <a href="mailto:info@rehomebv.com" style="color: #ff6b35;">info@rehomebv.com</a></li>
-            <li><strong>Phone/WhatsApp:</strong> <a href="https://wa.me/31645839273" style="color: #ff6b35;">+31 645 839 273</a></li>
           </ul>
+          <p>We look forward to assisting you!</p>
           
           <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; font-size: 12px; color: #777;">
             <p>© ${new Date().getFullYear()} ReHome BV. All rights reserved.</p>
@@ -275,10 +276,13 @@ export const sendMovingRequestEmail = async (movingData) => {
           </div>
           
           <p>In the meantime, if you have any questions or need to provide additional information, please don't hesitate to contact us at <a href="mailto:info@rehomebv.com">info@rehomebv.com</a>.</p>
-          
-          <p>Want to explore more about our services? Check out our marketplace:</p>
-          <a href="https://rehomebv.com/marketplace" style="display: inline-block; background-color: #ff6b35; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 20px 0;">Visit Our Marketplace</a>
-          
+          <ul style="list-style-type: none; padding-left: 0;">
+            <li><strong>WhatsApp:</strong> <a href="https://wa.me/31645839273" style="color: #ff6b35;">+31 645 839 273</a></li>
+            <li><strong>Email:</strong> <a href="mailto:info@rehomebv.com" style="color: #ff6b35;">info@rehomebv.com</a></li>
+          </ul>
+
+          <p>We look forward to assisting you!</p>
+
           <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; font-size: 12px; color: #777;">
             <p>© ${new Date().getFullYear()} ReHome BV. All rights reserved.</p>
             <p>This email was sent to confirm your moving request. If you didn't request this, please ignore this email.</p>
