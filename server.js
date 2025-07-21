@@ -2147,6 +2147,97 @@ app.put('/api/item-donation-requests/:id/status', authenticateUser, async (req, 
   }
 });
 
+// Get special requests (admin endpoint)
+app.get('/api/special-requests', authenticateUser, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    console.log('📋 Fetching special requests for user:', userEmail);
+
+    let query = supabase
+      .from('special_requests')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    // If not admin, filter by user's email
+    if (!isAdmin(userEmail)) {
+      query = query.eq('contact_info->>email', userEmail);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('❌ Error fetching special requests:', error);
+      
+      // If table doesn't exist, return empty array for now
+      if (error.code === 'PGRST116' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
+        console.log('⚠️ Special requests table does not exist yet');
+        return res.json([]);
+      }
+      
+      return res.status(500).json({ 
+        error: 'Failed to fetch special requests',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
+    console.log('✅ Found special requests:', data?.length || 0);
+    res.json(data || []);
+  } catch (err) {
+    console.error('❌ Error fetching special requests:', err);
+    res.status(500).json({ 
+      error: 'Internal Server Error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+// Update special request status (admin endpoint)
+app.put('/api/special-requests/:id/status', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, adminNotes } = req.body;
+    const userEmail = req.user.email;
+
+    if (!isAdmin(userEmail)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!['pending', 'approved', 'rejected', 'completed', 'cancelled'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    console.log('📝 Updating special request status:', { id, status, adminNotes });
+
+    const { data, error } = await supabase
+      .from('special_requests')
+      .update({ 
+        status, 
+        admin_notes: adminNotes || null,
+        updated_at: new Date().toISOString(),
+        updated_by: userEmail
+      })
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      console.error('❌ Error updating special request status:', error);
+      return res.status(500).json({ 
+        error: 'Failed to update special request status',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
+    console.log('✅ Special request status updated successfully');
+    res.json({ message: 'Special request status updated successfully', data: data[0] });
+  } catch (err) {
+    console.error('❌ Error updating special request status:', err);
+    res.status(500).json({ 
+      error: 'Internal Server Error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
 // 9. Mark Furniture as Sold and Move to Sold Items
 app.post('/api/furniture/sold/:id', authenticateUser, async (req, res) => {
     const furnitureId = req.params.id;
