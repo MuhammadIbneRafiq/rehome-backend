@@ -930,7 +930,8 @@ app.post('/api/item-moving-requests', async (req, res) => {
         secondLocation,
         firstLocationCoords,
         secondLocationCoords,
-        orderSummary
+        orderSummary,
+        distanceKm
       } = req.body;
       
       console.log('📦 Item Moving Request - Full Body:', req.body);
@@ -1011,7 +1012,8 @@ app.post('/api/item-moving-requests', async (req, res) => {
         firstlocation: firstLocation || null,
         secondlocation: secondLocation || null,
         firstlocation_coords: firstLocationCoords || null,
-        secondlocation_coords: secondLocationCoords || null
+        secondlocation_coords: secondLocationCoords || null,
+        distance_km: distanceKm
       };
 
       // Add distance data if available
@@ -1108,45 +1110,14 @@ app.post('/api/item-moving-requests', async (req, res) => {
         secondLocation,
         firstLocationCoords,
         secondLocationCoords,
-        orderSummary
+        orderSummary,
+        distanceKm
     } = req.body;
     
     console.log('🏠 House Moving Request - Full Body:', req.body);
     
-    // Validate required fields
-    if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
-      return res.status(400).json({ error: 'Contact information is required' });
-    }
-
     const selecteddate_start = selectedDateRange?.start || null;
     const selecteddate_end = selectedDateRange?.end || null;
-
-    // Calculate distance if coordinates are provided
-    let distanceData = null;
-    if (firstLocationCoords && secondLocationCoords) {
-      console.log('🛣️ Calculating distance for house moving request...');
-      console.log('📍 From:', firstLocationCoords, 'To:', secondLocationCoords);
-      
-      try {
-        distanceData = await calculateDistanceBetweenLocations(firstLocationCoords, secondLocationCoords);
-        
-        if (distanceData.success) {
-          console.log('✅ Distance calculated successfully:', {
-            distance: `${distanceData.distanceKm} km`,
-            duration: distanceData.durationText,
-            provider: distanceData.provider
-          });
-        } else {
-          console.log('⚠️ Distance calculation failed:', distanceData.error);
-          // Continue with request even if distance calculation fails
-        }
-      } catch (distanceError) {
-        console.error('❌ Distance calculation error:', distanceError);
-        // Continue with request even if distance calculation fails
-      }
-    } else {
-      console.log('📍 No coordinates provided, skipping distance calculation');
-    }
 
     // Prepare data for database insertion
     const insertData = {
@@ -1173,18 +1144,12 @@ app.post('/api/item-moving-requests', async (req, res) => {
       firstlocation: firstLocation || null,
       secondlocation: secondLocation || null,
       firstlocation_coords: firstLocationCoords || null,
-      secondlocation_coords: secondLocationCoords || null
+      secondlocation_coords: secondLocationCoords || null,
+      calculated_distance_km: distanceKm // Use the correct column name
     };
 
-    // Add distance data if available
-    if (distanceData && distanceData.success) {
-      insertData.calculated_distance_km = distanceData.distanceKm;
-      insertData.calculated_duration_seconds = distanceData.duration;
-      insertData.calculated_duration_text = distanceData.durationText;
-      insertData.distance_provider = distanceData.provider;
-    }
-
-    console.log('💾 Inserting house moving request into database...');
+    insertData.calculated_distance_km = distanceKm; // get it from the supabase now please.
+     
 
     const { data, error } = await supabase
         .from('house_moving')
@@ -1200,6 +1165,10 @@ app.post('/api/item-moving-requests', async (req, res) => {
 
     // Send confirmation email
     try {
+      const distanceInfo = (typeof insertData.calculated_distance_km === 'number' && !isNaN(insertData.calculated_distance_km)) ? {
+        distance: `${insertData.calculated_distance_km} km`,
+        duration: null // Duration not available from frontend
+      } : null;
       const emailResult = await sendMovingRequestEmail({
         customerEmail: contactInfo.email,
         customerFirstName: contactInfo.firstName,
@@ -1211,10 +1180,7 @@ app.post('/api/item-moving-requests', async (req, res) => {
         isDateFlexible,
         estimatedPrice: estimatedPrice || 0,
         orderSummary,
-        distanceInfo: distanceData && distanceData.success ? {
-          distance: distanceData.distanceText,
-          duration: distanceData.durationText
-        } : null
+        distanceInfo
       });
       
       if (emailResult.success) {
@@ -1229,11 +1195,11 @@ app.post('/api/item-moving-requests', async (req, res) => {
     // Return response with distance data included
     const response = {
       ...data[0],
-      distanceCalculation: distanceData && distanceData.success ? {
+      distanceCalculation: (typeof insertData.calculated_distance_km === 'number' && !isNaN(insertData.calculated_distance_km)) ? {
         success: true,
-        distance: distanceData.distanceText,
-        duration: distanceData.durationText,
-        provider: distanceData.provider
+        distance: `${insertData.calculated_distance_km} km`,
+        duration: null,
+        provider: 'frontend'
       } : null
     };
 
