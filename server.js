@@ -1752,22 +1752,55 @@ app.post('/api/furniture/new', authenticateUser, async (req, res) => {
     }
 });
 
-// 7. Special Request Endpoint with Distance Calculation
-app.post('/api/special-request', async (req, res) => {
-  const { 
-    selectedServices, 
-    message, 
-    contactInfo, 
-    pickupLocation, 
-    dropoffLocation, 
-    pickupLocationCoords, 
-    dropoffLocationCoords,
-    requestType,
-    preferredDate,
-    isDateFlexible
-  } = req.body;
-
+// 7. Special Request Endpoint with Distance Calculation and Photo Upload
+app.post('/api/special-requests', (req, res, next) => {
+    // Handle multer errors for photo uploads
+    upload.array('photos', 10)(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            console.error('Multer error:', err.code, err.message);
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({ 
+                    error: 'File too large. Maximum file size is 50MB per file. Our system will automatically compress your images to under 2MB.' 
+                });
+            }
+            if (err.code === 'LIMIT_FILE_COUNT') {
+                return res.status(400).json({ error: 'Too many files. Maximum 10 files allowed.' });
+            }
+            return res.status(400).json({ error: 'File upload error: ' + err.message });
+        }
+        if (err) {
+            return res.status(500).json({ error: 'Upload failed: ' + err.message });
+        }
+        next();
+    });
+}, async (req, res) => {
   console.log('🎯 Special Request - Full Body:', req.body);
+  console.log('📤 Special Request - Files:', req.files?.length || 0);
+
+  // Extract form data - since we're using FormData from frontend
+  const selectedService = req.body.service;
+  const phone = req.body.phone;
+  const email = req.body.email;
+  
+  // Extract other dynamic fields
+  const fields = {};
+  Object.keys(req.body).forEach(key => {
+    if (!['service', 'phone', 'email'].includes(key)) {
+      fields[key] = req.body[key];
+    }
+  });
+
+  // Map frontend fields to backend expected format
+  const selectedServices = fields.services ? [fields.services] : [selectedService];
+  const message = fields.itemDescription || fields.itemList || fields.message || '';
+  const contactInfo = { phone, email };
+  const pickupLocation = fields.pickupAddress || fields.address || '';
+  const dropoffLocation = fields.dropoffAddress || fields.dropoffPreference || '';
+  const pickupLocationCoords = fields.pickupLocationCoords || null;
+  const dropoffLocationCoords = fields.dropoffLocationCoords || null;
+  const requestType = selectedService;
+  const preferredDate = fields.removalDate || fields.preferredDate || null;
+  const isDateFlexible = fields.isDateFlexible || false;
 
   try {
     // Calculate distance if coordinates are provided
@@ -1818,6 +1851,94 @@ app.post('/api/special-request', async (req, res) => {
       insertData.calculated_duration_seconds = distanceData.duration;
       insertData.calculated_duration_text = distanceData.durationText;
       insertData.distance_provider = distanceData.provider;
+    }
+
+    // Process photo uploads if any
+    let photoUrls = [];
+    if (req.files && req.files.length > 0) {
+      console.log(`📸 Processing ${req.files.length} photos for special request...`);
+      
+      // Check if special-requests bucket exists
+      const { data: bucketData, error: bucketError } = await supabaseClient.storage.getBucket('special-requests');
+      
+      if (bucketError) {
+        console.error('Special requests bucket error:', bucketError);
+        return res.status(500).json({ error: 'Storage bucket not accessible', details: bucketError });
+      }
+
+      for (let i = 0; i < req.files.length; i++) {
+        const file = req.files[i];
+        console.log(`\n📸 Processing photo ${i + 1}/${req.files.length}: ${file.originalname}`);
+        
+        try {
+          let finalBuffer = file.buffer;
+          let finalFilename = file.originalname;
+          let finalMimeType = file.mimetype;
+          
+          // Process image for optimization
+          if (imageProcessingService.isImageFormatSupported(file.originalname)) {
+            console.log(`🔄 Optimizing image: ${file.originalname}`);
+            
+            const conversionResult = await imageProcessingService.processImage(
+              file.buffer, 
+              file.originalname, 
+              { quality: 80, maxWidth: 1920, maxHeight: 1080 }
+            );
+            
+            if (conversionResult.success) {
+              finalBuffer = conversionResult.buffer;
+              finalFilename = conversionResult.filename;
+              finalMimeType = conversionResult.mimeType;
+              console.log(`✅ Image optimized: ${finalFilename} (${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+            }
+          }
+          
+          // Generate unique filename
+          const timestamp = Date.now();
+          const randomSuffix = Math.random().toString(36).substring(7);
+          const fileExtension = finalFilename.split('.').pop();
+          const uniqueFilename = `special-request-${timestamp}-${randomSuffix}.${fileExtension}`;
+          
+          // Upload to special-requests bucket
+          console.log(`📤 Uploading ${uniqueFilename} to special-requests bucket...`);
+          
+          const { data: uploadData, error: uploadError } = await supabaseClient.storage
+            .from('special-requests')
+            .upload(uniqueFilename, finalBuffer, {
+              contentType: finalMimeType,
+              cacheControl: '3600',
+              upsert: false
+            });
+
+          if (uploadError) {
+            console.error(`❌ Upload failed for ${uniqueFilename}:`, uploadError);
+            throw uploadError;
+          }
+
+          // Get public URL
+          const { data: urlData } = supabaseClient.storage
+            .from('special-requests')
+            .getPublicUrl(uniqueFilename);
+
+          if (urlData?.publicUrl) {
+            photoUrls.push(urlData.publicUrl);
+            console.log(`✅ Photo uploaded successfully: ${urlData.publicUrl}`);
+          } else {
+            console.error(`❌ Failed to get public URL for ${uniqueFilename}`);
+          }
+
+        } catch (photoError) {
+          console.error(`❌ Error processing photo ${file.originalname}:`, photoError);
+          // Continue with other photos even if one fails
+        }
+      }
+      
+      console.log(`📸 Successfully uploaded ${photoUrls.length}/${req.files.length} photos`);
+    }
+
+    // Add photo URLs to insert data
+    if (photoUrls.length > 0) {
+      insertData.photo_urls = photoUrls;
     }
 
     console.log('💾 Inserting special request into database...');

@@ -99,6 +99,38 @@ CREATE TRIGGER update_city_day_data_updated_at BEFORE UPDATE ON city_day_data FO
 CREATE TRIGGER update_pricing_config_updated_at BEFORE UPDATE ON pricing_config FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_admin_users_updated_at BEFORE UPDATE ON admin_users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- 7. Special Requests Services Table
+CREATE TABLE services (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    selected_services TEXT[], -- Array of selected services
+    message TEXT,
+    contact_info JSONB NOT NULL, -- {phone, email, firstName, lastName}
+    pickup_location TEXT,
+    dropoff_location TEXT,
+    pickup_location_coords JSONB, -- {lat, lng}
+    dropoff_location_coords JSONB, -- {lat, lng}
+    request_type VARCHAR(100), -- storage, junkRemoval, fullInternationalMove
+    preferred_date DATE,
+    is_date_flexible BOOLEAN DEFAULT false,
+    calculated_distance_km DECIMAL(8,2),
+    calculated_duration_seconds INTEGER,
+    calculated_duration_text VARCHAR(100),
+    distance_provider VARCHAR(50),
+    photo_urls TEXT[], -- Array of uploaded photo URLs
+    status VARCHAR(50) DEFAULT 'pending', -- pending, confirmed, completed, cancelled
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for services table
+CREATE INDEX idx_services_request_type ON services(request_type);
+CREATE INDEX idx_services_status ON services(status);
+CREATE INDEX idx_services_created_at ON services(created_at);
+CREATE INDEX idx_services_preferred_date ON services(preferred_date);
+
+-- Apply update trigger to services table
+CREATE TRIGGER update_services_updated_at BEFORE UPDATE ON services FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- Initial data seeding
 
 -- Insert default pricing configuration
