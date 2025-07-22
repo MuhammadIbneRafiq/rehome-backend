@@ -2241,7 +2241,7 @@ app.get('/api/special-requests', authenticateUser, async (req, res) => {
     console.log('📋 Fetching special requests for user:', userEmail);
 
     let query = supabase
-      .from('special_requests')
+      .from('services') // Changed from 'special_requests' to 'services'
       .select('*')
       .order('created_at', { ascending: false });
 
@@ -2254,13 +2254,11 @@ app.get('/api/special-requests', authenticateUser, async (req, res) => {
 
     if (error) {
       console.error('❌ Error fetching special requests:', error);
-      
       // If table doesn't exist, return empty array for now
       if (error.code === 'PGRST116' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
         console.log('⚠️ Special requests table does not exist yet');
         return res.json([]);
       }
-      
       return res.status(500).json({ 
         error: 'Failed to fetch special requests',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -2296,7 +2294,7 @@ app.put('/api/special-requests/:id/status', authenticateUser, async (req, res) =
     console.log('📝 Updating special request status:', { id, status, adminNotes });
 
     const { data, error } = await supabase
-      .from('special_requests')
+      .from('services')
       .update({ 
         status, 
         admin_notes: adminNotes || null,
