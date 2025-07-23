@@ -3144,6 +3144,82 @@ app.post("/api/calculate-pricing", async (req, res) => {
     }
 });
 
+// Helper function to check city schedule status (eliminates race conditions)
+async function checkCityScheduleStatus(city, date) {
+    try {
+        // Format date as YYYY-MM-DD
+        const dateStr = new Date(date).toISOString().split('T')[0];
+        
+        // Single database call to check if city is scheduled on this date
+        const { data, error } = await supabase
+            .from('city_schedules')
+            .select('id')
+            .eq('city', city)
+            .eq('date', dateStr)
+            .limit(1)
+            .maybeSingle();
+            
+        if (error) {
+            console.error('[checkCityScheduleStatus] Error fetching city_schedules:', error);
+            return {
+                isScheduled: false,
+                isEmpty: true,
+                error: error.message
+            };
+        }
+        
+        const isScheduled = !!data;
+        return {
+            isScheduled,        // true if city has scheduled delivery on this date
+            isEmpty: !isScheduled, // true if calendar is empty (eligible for early booking discount)
+            error: null
+        };
+    } catch (error) {
+        console.error('[checkCityScheduleStatus] Unexpected error:', error);
+        return {
+            isScheduled: false,
+            isEmpty: true,
+            error: error.message
+        };
+    }
+}
+
+// API endpoint to check city schedule status
+app.get('/api/city-schedule-status', async (req, res) => {
+    try {
+        const { city, date } = req.query;
+        
+        if (!city || !date) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'City and date parameters are required' 
+            });
+        }
+        
+        const result = await checkCityScheduleStatus(city, date);
+        
+        if (result.error) {
+            return res.status(500).json({ 
+                success: false, 
+                error: result.error 
+            });
+        }
+        
+        res.json({ 
+            success: true, 
+            data: {
+                city,
+                date,
+                isScheduled: result.isScheduled,
+                isEmpty: result.isEmpty
+            }
+        });
+    } catch (error) {
+        console.error("City schedule status error:", error);
+        res.status(500).json({ success: false, error: "Internal server error" });
+    }
+});
+
 // Helper function for pricing calculation
 function calculatePricingBreakdown(params) {
     const {
