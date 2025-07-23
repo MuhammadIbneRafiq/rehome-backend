@@ -3220,6 +3220,83 @@ app.get('/api/city-schedule-status', async (req, res) => {
     }
 });
 
+// API endpoint to check if city has any available day within a date range
+app.get('/api/city-availability-range', async (req, res) => {
+    try {
+        const { city, startDate, endDate } = req.query;
+        
+        if (!city || !startDate || !endDate) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'City, startDate, and endDate parameters are required' 
+            });
+        }
+        
+        const result = await checkCityAvailabilityInRange(city, startDate, endDate);
+        
+        if (result.error) {
+            return res.status(500).json({ 
+                success: false, 
+                error: result.error 
+            });
+        }
+        
+        res.json({ 
+            success: true, 
+            data: {
+                city,
+                startDate,
+                endDate,
+                hasAvailableDay: result.hasAvailableDay
+            }
+        });
+    } catch (error) {
+        console.error("City availability range error:", error);
+        res.status(500).json({ success: false, error: "Internal server error" });
+    }
+});
+
+// Helper function to check if city has any available day within a date range
+async function checkCityAvailabilityInRange(city, startDate, endDate) {
+    try {
+        // Format dates as YYYY-MM-DD
+        const startDateStr = new Date(startDate).toISOString().split('T')[0];
+        const endDateStr = new Date(endDate).toISOString().split('T')[0];
+        
+        // Check if city is scheduled on any date within the range
+        const { data, error } = await supabase
+            .from('city_schedules')
+            .select('date')
+            .eq('city', city)
+            .gte('date', startDateStr)
+            .lte('date', endDateStr)
+            .limit(1)
+            .maybeSingle();
+            
+        if (error) {
+            console.error('[checkCityAvailabilityInRange] Error fetching city_schedules:', error);
+            return {
+                hasAvailableDay: false,
+                error: error.message
+            };
+        }
+        
+        // If we found any scheduled date in the range, the city has an available day
+        const hasAvailableDay = !!data;
+        
+        return {
+            hasAvailableDay,
+            error: null
+        };
+    } catch (error) {
+        console.error('[checkCityAvailabilityInRange] Unexpected error:', error);
+        return {
+            hasAvailableDay: false,
+            error: error.message
+        };
+    }
+}
+
 // Helper function for pricing calculation
 function calculatePricingBreakdown(params) {
     const {
