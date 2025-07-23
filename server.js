@@ -4726,6 +4726,101 @@ app.get('/api/house-moving-requests', authenticateAdmin, async (req, res) => {
   }
 });
 
+
+// Get all constants in one request to avoid race conditions
+app.get('/api/constants', async (req, res) => {
+    try {
+        console.log('📋 Fetching all constants...');
+        
+        // Fetch all three datasets in parallel
+        const [furnitureResult, cityChargesResult] = await Promise.all([
+            supabaseClient.from('furniture_items').select('*'),
+            supabaseClient.from('city_base_charges').select('*')
+        ]);
+
+        // Handle furniture items
+        if (furnitureResult.error) {
+            console.error('❌ Error fetching furniture items:', furnitureResult.error);
+            return res.status(500).json({ 
+                success: false, 
+                error: 'Failed to fetch furniture items',
+                details: furnitureResult.error.message 
+            });
+        }
+
+        // Handle city base charges
+        if (cityChargesResult.error) {
+            console.error('❌ Error fetching city base charges:', cityChargesResult.error);
+            return res.status(500).json({ 
+                success: false, 
+                error: 'Failed to fetch city base charges',
+                details: cityChargesResult.error.message 
+            });
+        }
+
+        // Process furniture items - map to expected format
+        const furnitureItems = (furnitureResult.data || []).map(({ name, category, points }) => ({
+            id: name.toLowerCase().replace(/\s+/g, '-'),
+            name,
+            category,
+            points
+        }));
+
+        // Group furniture items by category for itemCategories
+        const categoryMap = {};
+        for (const item of furnitureItems) {
+            if (!categoryMap[item.category]) {
+                categoryMap[item.category] = [];
+            }
+            categoryMap[item.category].push({ id: item.id, name: item.name });
+        }
+        const itemCategories = Object.entries(categoryMap).map(([name, items]) => ({ name, items }));
+
+        // Process city base charges - map to expected format
+        const cityBaseCharges = {};
+        for (const row of cityChargesResult.data || []) {
+            cityBaseCharges[row.city_name] = {
+                normal: row.normal,
+                cityDay: row.city_day,
+                dayOfWeek: row.day_of_week || 1 // Default to 1 if not specified
+            };
+        }
+
+        const response = {
+            success: true,
+            data: {
+                furnitureItems,
+                itemCategories,
+                cityBaseCharges
+            },
+            meta: {
+                furnitureItemsCount: furnitureItems.length,
+                categoriesCount: itemCategories.length,
+                citiesCount: Object.keys(cityBaseCharges).length,
+                timestamp: new Date().toISOString()
+            }
+        };
+
+        console.log('✅ Constants fetched successfully:', {
+            furnitureItems: furnitureItems.length,
+            categories: itemCategories.length,
+            cities: Object.keys(cityBaseCharges).length
+        });
+
+        res.json(response);
+    } catch (error) {
+        console.error('❌ Error fetching constants:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Internal server error',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
+
+// ==================== END CONSTANTS ENDPOINT ====================
+
+
 export default app;
 
 // Start the server only when running this file directly (for local development)
