@@ -3220,6 +3220,61 @@ app.get('/api/city-schedule-status', async (req, res) => {
     }
 });
 
+// API endpoint to check if city has availability within a date range
+app.get('/api/city-availability-range', async (req, res) => {
+    try {
+        const { city, startDate, endDate } = req.query;
+        
+        if (!city || !startDate || !endDate) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'City, startDate, and endDate parameters are required' 
+            });
+        }
+        
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        
+        if (start > end) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Start date must be before or equal to end date' 
+            });
+        }
+        
+        let hasAvailableDay = false;
+        const currentDate = new Date(start);
+        
+        // Check each day in the range
+        while (currentDate <= end) {
+            const dateStr = currentDate.toISOString().split('T')[0];
+            const result = await checkCityScheduleStatus(city, dateStr);
+            
+            // If any day is scheduled for this city, we have availability
+            if (result.isScheduled || result.isEmpty) {
+                hasAvailableDay = true;
+                break;
+            }
+            
+            // Move to next day
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+        
+        res.json({ 
+            success: true, 
+            data: {
+                city,
+                startDate,
+                endDate,
+                hasAvailableDay
+            }
+        });
+    } catch (error) {
+        console.error("City availability range error:", error);
+        res.status(500).json({ success: false, error: "Internal server error" });
+    }
+});
+
 // API endpoint to check if city has any available day within a date range
 app.get('/api/city-availability-range', async (req, res) => {
     try {
