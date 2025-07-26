@@ -3311,6 +3311,45 @@ app.get('/api/city-availability-range', async (req, res) => {
     }
 });
 
+// API endpoint to check if all cities are empty on a specific date
+app.get('/api/check-all-cities-empty', async (req, res) => {
+    try {
+        const { date } = req.query;
+        
+        if (!date) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Date parameter is required' 
+            });
+        }
+        
+        // List of all supported cities
+        const allCities = ['Amsterdam', 'Rotterdam', 'Utrecht', 'Den Haag', 'Eindhoven', 'Tilburg', 'Groningen', 'Almere', 'Breda', 'Nijmegen', 'Enschede', 'Haarlem', 'Arnhem', 'Zaanstad', 'Amersfoort', 'Apeldoorn', 'Hoofddorp', 'Roosendaal', 'Dordrecht', 'Leiden', 'Haarlemmermeer', 'Zoetermeer', 'Zwolle', 'Maastricht', 'Leeuwarden', 'Alkmaar', 'Emmen', 'Venlo', 'Helmond', 'Delft'];
+        
+        let allEmpty = true;
+        
+        // Check each city to see if any has bookings or is scheduled
+        for (const city of allCities) {
+            const status = await checkCityScheduleStatus(city, date);
+            if (status.isScheduled || !status.isEmpty) {
+                allEmpty = false;
+                break;
+            }
+        }
+        
+        res.json({ 
+            success: true, 
+            data: {
+                date,
+                isEmpty: allEmpty
+            }
+        });
+    } catch (error) {
+        console.error("Check all cities empty error:", error);
+        res.status(500).json({ success: false, error: "Internal server error" });
+    }
+});
+
 // Helper function to check if city has any available day within a date range
 async function checkCityAvailabilityInRange(city, startDate, endDate) {
     try {
