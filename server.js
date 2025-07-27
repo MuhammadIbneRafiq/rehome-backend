@@ -40,7 +40,7 @@ app.use(json()); // for parsing application/json
 
 // Set up Multer for file uploads (in-memory storage for simplicity)
 const storage = multer.memoryStorage();
-const upload = multer({ 
+const upload = multer({
     storage: storage,
     limits: {
         fileSize: 50 * 1024 * 1024, // 50MB max file size to allow very large files before compression
@@ -5067,6 +5067,206 @@ app.get('/api/constants', async (req, res) => {
 
 // ==================== END CONSTANTS ENDPOINT ====================
 
+// 8. Item Donation Endpoint with Photo Upload (shared special-requests bucket)
+app.post('/api/item-donation-requests', (req, res, next) => {
+    console.log('🎁 Item Donation Request - Before multer - Headers:', req.headers);
+    console.log('🎁 Item Donation Request - Before multer - Content-Type:', req.get('Content-Type'));
+    
+    // Handle multer errors for photo uploads
+    upload.array('photos', 10)(req, res, (err) => {
+        console.log('🎁 Item Donation Request - After multer - Body:', req.body);
+        console.log('🎁 Item Donation Request - After multer - Files:', req.files?.length || 0);
+        
+        if (err instanceof multer.MulterError) {
+            console.error('Multer error:', err.code, err.message);
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({ 
+                    error: 'File too large. Maximum file size is 50MB per file. Our system will automatically compress your images to under 2MB.' 
+                });
+            }
+            if (err.code === 'LIMIT_FILE_COUNT') {
+                return res.status(400).json({ error: 'Too many files. Maximum 10 files allowed.' });
+            }
+            return res.status(400).json({ error: 'File upload error: ' + err.message });
+        }
+        if (err) {
+            console.error('🎁 Multer error:', err);
+            return res.status(500).json({ error: 'Upload failed: ' + err.message });
+        }
+        next();
+    });
+}, async (req, res) => {
+  try {
+    console.log('🎁 Item Donation Request - Headers:', req.headers);
+    console.log('🎁 Item Donation Request - Content-Type:', req.get('Content-Type'));
+    console.log('🎁 Item Donation Request - Full Body:', req.body);
+    console.log('🎁 Item Donation Request - Files:', req.files?.length || 0);
+    
+    // Check if we have files (indicates multipart/form-data)
+    const hasFiles = req.files && req.files.length > 0;
+    const contentType = req.get('Content-Type') || '';
+    const isMultipart = contentType.includes('multipart/form-data') || hasFiles;
+    
+    console.log('🎁 Is Multipart:', isMultipart, 'Has Files:', hasFiles);
+    
+    let body = req.body;
+    let photoUrls = [];
+    let donationItems, customItem, contactInfo, pickupLocation, donationLocation, pickupLocationCoords, donationLocationCoords, preferredPickupDate, isDateFlexible, donationType, specialInstructions, organizationName, organizationContact, totalEstimatedValue, itemCondition, floor, elevatorAvailable, preferredTimeSpan;
+
+    if (isMultipart) {
+      console.log('🎁 Processing as multipart/form-data');
+      // Parse fields from req.body (all values are strings)
+      try {
+        donationItems = body.donationItems ? JSON.parse(body.donationItems) : [];
+        customItem = body.customItem || null;
+        contactInfo = body.contactInfo ? JSON.parse(body.contactInfo) : {};
+        pickupLocation = body.pickupLocation || null;
+        donationLocation = body.donationLocation || null;
+        pickupLocationCoords = body.pickupLocationCoords ? JSON.parse(body.pickupLocationCoords) : null;
+        donationLocationCoords = body.donationLocationCoords ? JSON.parse(body.donationLocationCoords) : null;
+        preferredPickupDate = body.preferredPickupDate || null;
+        isDateFlexible = body.isDateFlexible === 'true';
+        donationType = body.donationType || 'charity';
+        specialInstructions = body.specialInstructions || null;
+        organizationName = body.organizationName || null;
+        organizationContact = body.organizationContact ? JSON.parse(body.organizationContact) : null;
+        totalEstimatedValue = body.totalEstimatedValue ? parseFloat(body.totalEstimatedValue) : null;
+        itemCondition = body.itemCondition || null;
+        floor = body.floor || null;
+        elevatorAvailable = body.elevatorAvailable === 'true';
+        preferredTimeSpan = body.preferredTimeSpan || null;
+      } catch (parseError) {
+        console.error('🎁 Error parsing FormData fields:', parseError);
+        return res.status(400).json({ error: 'Invalid form data format' });
+      }
+    } else {
+      console.log('🎁 Processing as JSON');
+      // JSON body fallback (legacy)
+      ({ donationItems, customItem, contactInfo, pickupLocation, donationLocation, pickupLocationCoords, donationLocationCoords, preferredPickupDate, isDateFlexible, donationType, specialInstructions, organizationName, organizationContact, totalEstimatedValue, itemCondition, floor, elevatorAvailable, preferredTimeSpan } = body);
+    }
+
+    // Validate required fields
+    if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
+      return res.status(400).json({ error: 'Contact information is required' });
+    }
+    if (!donationItems || (Array.isArray(donationItems) && donationItems.length === 0)) {
+      return res.status(400).json({ error: 'At least one donation item is required' });
+    }
+
+    // Calculate distance if coordinates are provided
+    let distanceData = null;
+    if (pickupLocationCoords && donationLocationCoords) {
+      try {
+        distanceData = await calculateDistanceBetweenLocations(pickupLocationCoords, donationLocationCoords);
+      } catch (distanceError) {
+        // Continue with request even if distance calculation fails
+      }
+    }
+
+    // Process photo uploads if any
+    if (req.files && req.files.length > 0) {
+      // Check if special-requests bucket exists
+      const { data: bucketData, error: bucketError } = await supabaseClient.storage.getBucket('special-requests');
+      if (bucketError) {
+        return res.status(500).json({ error: 'Storage bucket not accessible', details: bucketError });
+      }
+      for (let i = 0; i < req.files.length; i++) {
+        const file = req.files[i];
+        try {
+          let finalBuffer = file.buffer;
+          let finalFilename = file.originalname;
+          let finalMimeType = file.mimetype;
+          // Optimize image if supported
+          if (imageProcessingService.isImageFormatSupported(file.originalname)) {
+            const conversionResult = await imageProcessingService.processImage(
+              file.buffer,
+              file.originalname,
+              { quality: 80, maxWidth: 1920, maxHeight: 1080 }
+            );
+            if (conversionResult.success) {
+              finalBuffer = conversionResult.buffer;
+              finalFilename = conversionResult.filename;
+              finalMimeType = conversionResult.mimeType;
+            }
+          }
+          // Generate unique filename
+          const timestamp = Date.now();
+          const randomSuffix = Math.random().toString(36).substring(7);
+          const fileExtension = finalFilename.split('.').pop();
+          const uniqueFilename = `special-request-${timestamp}-${randomSuffix}.${fileExtension}`;
+          // Upload to special-requests bucket
+          const { data: uploadData, error: uploadError } = await supabaseClient.storage
+            .from('special-requests')
+            .upload(uniqueFilename, finalBuffer, {
+              contentType: finalMimeType,
+              cacheControl: '3600',
+              upsert: false
+            });
+          if (uploadError) throw uploadError;
+          // Get public URL
+          const { data: urlData } = supabaseClient.storage
+            .from('special-requests')
+            .getPublicUrl(uniqueFilename);
+          if (urlData?.publicUrl) {
+            photoUrls.push(urlData.publicUrl);
+          }
+        } catch (photoError) {
+          // Continue with other photos even if one fails
+        }
+      }
+    }
+
+    // Prepare data for database insertion
+    const insertData = {
+      donation_items: donationItems,
+      custom_item: customItem || null,
+      contact_info: contactInfo,
+      pickup_location: pickupLocation || null,
+      donation_location: donationLocation || null,
+      pickup_location_coords: pickupLocationCoords || null,
+      donation_location_coords: donationLocationCoords || null,
+      preferred_pickup_date: preferredPickupDate || null,
+      is_date_flexible: Boolean(isDateFlexible),
+      donation_type: donationType || 'charity',
+      special_instructions: specialInstructions || null,
+      organization_name: organizationName || null,
+      organization_contact: organizationContact || null,
+      total_estimated_value: totalEstimatedValue ? parseFloat(totalEstimatedValue) : null,
+      item_condition: itemCondition || null,
+      photo_urls: photoUrls,
+      floor: floor || null,
+      elevator_available: elevatorAvailable || false,
+      preferred_time_span: preferredTimeSpan || null,
+      status: 'pending',
+      created_at: new Date().toISOString()
+    };
+    if (distanceData && distanceData.success) {
+      insertData.calculated_distance_km = distanceData.distanceKm;
+      insertData.calculated_duration_seconds = distanceData.duration;
+      insertData.calculated_duration_text = distanceData.durationText;
+      insertData.distance_provider = distanceData.provider;
+    }
+    const { data, error } = await supabase
+      .from('item_donations')
+      .insert([insertData])
+      .select();
+    if (error) {
+      return res.status(500).json({ error: 'Failed to save donation request.', details: error.message });
+    }
+    res.status(201).json({
+      message: 'Item donation request saved successfully.',
+      data: data[0],
+      distanceCalculation: distanceData && distanceData.success ? {
+        success: true,
+        distance: distanceData.distanceText,
+        duration: distanceData.durationText,
+        provider: distanceData.provider
+      } : null
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+  }
+});
 
 export default app;
 
