@@ -905,9 +905,12 @@ app.get('/api/furniture/:id', async (req, res) => {
 });
 
 // item moving request.
-// 9. Item Moving Request Endpoint with Distance Calculation
-app.post('/api/item-moving-requests', async (req, res) => {
+// 9. Item Moving Request Endpoint with Distance Calculation and Photo Upload
+app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, res) => {
     try {
+      // Parse the JSON data from FormData
+      const payload = JSON.parse(req.body.data);
+      
       const {
         pickupType,
         furnitureItems,
@@ -933,7 +936,7 @@ app.post('/api/item-moving-requests', async (req, res) => {
         secondLocationCoords,
         orderSummary,
         distanceKm
-      } = req.body;
+      } = payload;
       
       console.log('📦 Item Moving Request - Full Body:', req.body);
       
@@ -972,6 +975,59 @@ app.post('/api/item-moving-requests', async (req, res) => {
         console.log('📍 No coordinates provided, skipping distance calculation');
       }
 
+      // Process uploaded photos
+      let photoUrls = [];
+      if (req.files && req.files.length > 0) {
+        console.log('📸 Processing', req.files.length, 'uploaded photos for item moving request');
+        
+        for (const file of req.files) {
+          try {
+            // Convert image to web format and process with sharp
+            const conversionResult = await imageProcessingService.convertImageToWebFormat(
+              file.buffer,
+              file.originalname,
+              {
+                quality: 85,
+                maxWidth: 1920,
+                maxHeight: 1080,
+                removeMetadata: true
+              }
+            );
+            const optimizedImageBuffer = conversionResult.buffer;
+            
+            // Create a new file object for upload
+            const processedFile = new File([optimizedImageBuffer], file.originalname, {
+              type: 'image/jpeg'
+            });
+            
+            // Upload to Supabase storage
+            const fileName = `item-moving/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('special-requests')
+              .upload(fileName, processedFile, {
+                cacheControl: '3600',
+                upsert: false
+              });
+            
+            if (uploadError) {
+              console.error('❌ Photo upload error:', uploadError);
+              continue; // Skip this photo but continue with others
+            }
+            
+            // Get the public URL
+            const { data: { publicUrl } } = supabase.storage
+              .from('special-requests')
+              .getPublicUrl(fileName);
+            
+            photoUrls.push(publicUrl);
+            console.log('✅ Photo uploaded successfully:', publicUrl);
+          } catch (photoError) {
+            console.error('❌ Error processing photo:', photoError);
+            continue; // Skip this photo but continue with others
+          }
+        }
+      }
+      
       // Prepare data for database insertion
       const insertData = {
         email: contactInfo.email,
@@ -1014,7 +1070,8 @@ app.post('/api/item-moving-requests', async (req, res) => {
         secondlocation: secondLocation || null,
         firstlocation_coords: firstLocationCoords || null,
         secondlocation_coords: secondLocationCoords || null,
-        distance_km: distanceKm
+        calculated_distance_km: distanceKm,
+        photo_urls: photoUrls
       };
 
       // Add distance data if available
@@ -1088,9 +1145,12 @@ app.post('/api/item-moving-requests', async (req, res) => {
     }
   });
   
-// HOUSE Moving Request Endpoint with Distance Calculation
-  app.post('/api/house-moving-requests', async (req, res) => {
+// HOUSE Moving Request Endpoint with Distance Calculation and Photo Upload
+  app.post('/api/house-moving-requests', upload.array('photos', 10), async (req, res) => {
     try {
+    // Parse the JSON data from FormData
+    const payload = JSON.parse(req.body.data);
+    
     const {
         pickupType,
         furnitureItems,
@@ -1113,12 +1173,65 @@ app.post('/api/item-moving-requests', async (req, res) => {
         secondLocationCoords,
         orderSummary,
         distanceKm
-    } = req.body;
+    } = payload;
     
     console.log('🏠 House Moving Request - Full Body:', req.body);
     
     const selecteddate_start = selectedDateRange?.start || null;
     const selecteddate_end = selectedDateRange?.end || null;
+
+    // Process uploaded photos
+    let photoUrls = [];
+    if (req.files && req.files.length > 0) {
+      console.log('📸 Processing', req.files.length, 'uploaded photos for house moving request');
+      
+      for (const file of req.files) {
+        try {
+          // Convert image to web format and process with sharp
+          const conversionResult = await imageProcessingService.convertImageToWebFormat(
+            file.buffer,
+            file.originalname,
+            {
+              quality: 85,
+              maxWidth: 1920,
+              maxHeight: 1080,
+              removeMetadata: true
+            }
+          );
+          const optimizedImageBuffer = conversionResult.buffer;
+          
+          // Create a new file object for upload
+          const processedFile = new File([optimizedImageBuffer], file.originalname, {
+            type: 'image/jpeg'
+          });
+          
+          // Upload to Supabase storage
+          const fileName = `house-moving/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('special-requests')
+            .upload(fileName, processedFile, {
+              cacheControl: '3600',
+              upsert: false
+            });
+          
+          if (uploadError) {
+            console.error('❌ Photo upload error:', uploadError);
+            continue; // Skip this photo but continue with others
+          }
+          
+          // Get the public URL
+          const { data: { publicUrl } } = supabase.storage
+            .from('special-requests')
+            .getPublicUrl(fileName);
+          
+          photoUrls.push(publicUrl);
+          console.log('✅ Photo uploaded successfully:', publicUrl);
+        } catch (photoError) {
+          console.error('❌ Error processing photo:', photoError);
+          continue; // Skip this photo but continue with others
+        }
+      }
+    }
 
     // Prepare data for database insertion
     const insertData = {
@@ -1146,10 +1259,9 @@ app.post('/api/item-moving-requests', async (req, res) => {
       secondlocation: secondLocation || null,
       firstlocation_coords: firstLocationCoords || null,
       secondlocation_coords: secondLocationCoords || null,
-      calculated_distance_km: distanceKm // Use the correct column name
+      calculated_distance_km: distanceKm,
+      photo_urls: photoUrls
     };
-
-    insertData.calculated_distance_km = distanceKm; // get it from the supabase now please.
      
 
     const { data, error } = await supabase
