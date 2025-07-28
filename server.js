@@ -1872,64 +1872,145 @@ app.post('/api/special-requests', (req, res, next) => {
         console.log(`\n📸 Processing photo ${i + 1}/${req.files.length}: ${file.originalname}`);
         
         try {
+          // Check if the image format is supported
+          const isSupported = imageProcessingService.isImageFormatSupported(file.originalname);
+          console.log(`📸 Format supported: ${isSupported} (${file.originalname})`);
+          
           let finalBuffer = file.buffer;
           let finalFilename = file.originalname;
           let finalMimeType = file.mimetype;
           
-          // Process image for optimization
-          if (imageProcessingService.isImageFormatSupported(file.originalname)) {
-            console.log(`🔄 Optimizing image: ${file.originalname}`);
+          // Always process images for optimization and format conversion
+          console.log(`📸 Processing image: ${file.originalname} (Original size: ${(file.buffer.length / 1024 / 1024).toFixed(2)} MB)`);
+          
+          let conversionResult;
+          
+          // Convert unsupported formats (HEIC, etc.) or optimize all images
+          if (!isSupported || file.originalname.toLowerCase().includes('.heic')) {
+            console.log(`📸 Converting unsupported format: ${file.originalname}`);
             
-            const conversionResult = await imageProcessingService.processImage(
-              file.buffer, 
-              file.originalname, 
-              { quality: 80, maxWidth: 1920, maxHeight: 1080 }
+            conversionResult = await imageProcessingService.convertImageToWebFormat(
+              file.buffer,
+              file.originalname,
+              {
+                quality: 85,
+                maxWidth: 1920,
+                maxHeight: 1080,
+                removeMetadata: true
+              }
+            );
+          } else {
+            // Optimize supported formats (JPEG, PNG, etc.) for better performance
+            console.log(`📸 Optimizing supported image: ${file.originalname}`);
+            
+            const optimizedBuffer = await imageProcessingService.processImageWithSharp(
+              file.buffer,
+              {
+                format: file.originalname.toLowerCase().includes('.png') ? 'png' : 'jpeg',
+                quality: 85,
+                maxWidth: 1920,
+                maxHeight: 1080,
+                removeMetadata: true
+              }
             );
             
-            if (conversionResult.success) {
-              finalBuffer = conversionResult.buffer;
-              finalFilename = conversionResult.filename;
-              finalMimeType = conversionResult.mimeType;
-              console.log(`✅ Image optimized: ${finalFilename} (${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+            const extension = imageProcessingService.getFileExtension(file.originalname);
+            const outputExtension = extension === 'jpg' ? 'jpg' : (extension === 'png' ? 'png' : 'jpg');
+            
+            conversionResult = {
+              buffer: optimizedBuffer,
+              filename: `${uuidv4()}.${outputExtension}`,
+              mimeType: `image/${outputExtension === 'jpg' ? 'jpeg' : outputExtension}`,
+              originalFormat: extension,
+              outputFormat: outputExtension === 'jpg' ? 'jpeg' : outputExtension
+            };
+          }
+          
+          // Set processed file details
+          finalBuffer = conversionResult.buffer;
+          finalFilename = conversionResult.filename;
+          finalMimeType = conversionResult.mimeType;
+          
+          // Additional compression if file is still over 2MB
+          const targetSizeInBytes = 2 * 1024 * 1024; // 2MB
+          if (finalBuffer.length > targetSizeInBytes) {
+            console.log(`📸 File still over 2MB (${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB), applying aggressive compression...`);
+            
+            let currentBuffer = finalBuffer;
+            let quality = 70;
+            let maxWidth = 1600;
+            let maxHeight = 1200;
+            let attempts = 0;
+            const maxAttempts = 5;
+            
+            while (currentBuffer.length > targetSizeInBytes && attempts < maxAttempts) {
+              attempts++;
+              console.log(`📸 Compression attempt ${attempts}/${maxAttempts} - Quality: ${quality}, Max dimensions: ${maxWidth}x${maxHeight}`);
+              
+              try {
+                const compressedBuffer = await imageProcessingService.processImageWithSharp(
+                  currentBuffer,
+                  {
+                    format: 'jpeg', // Force JPEG for better compression
+                    quality: quality,
+                    maxWidth: maxWidth,
+                    maxHeight: maxHeight,
+                    removeMetadata: true
+                  }
+                );
+                
+                currentBuffer = compressedBuffer;
+                console.log(`📸 After compression attempt ${attempts}: ${(currentBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+                
+                // Reduce quality and dimensions for next attempt
+                quality = Math.max(30, quality - 10);
+                maxWidth = Math.max(800, maxWidth - 200);
+                maxHeight = Math.max(600, maxHeight - 150);
+                
+              } catch (compressionError) {
+                console.error(`📸 Compression attempt ${attempts} failed:`, compressionError.message);
+                break;
+              }
+            }
+            
+            // Update final values
+            finalBuffer = currentBuffer;
+            finalMimeType = 'image/jpeg';
+            finalFilename = finalFilename.replace(/\.(png|webp|gif)$/i, '.jpg');
+            
+            if (finalBuffer.length > targetSizeInBytes) {
+              console.log(`📸 Warning: File still over 2MB after ${maxAttempts} attempts. Final size: ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+            } else {
+              console.log(`📸 Successfully compressed to ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB`);
             }
           }
           
-          // Generate unique filename
-          const timestamp = Date.now();
-          const randomSuffix = Math.random().toString(36).substring(7);
-          const fileExtension = finalFilename.split('.').pop();
-          const uniqueFilename = `special-request-${timestamp}-${randomSuffix}.${fileExtension}`;
+          // Calculate size reduction
+          const sizeReduction = Math.round((1 - finalBuffer.length / file.buffer.length) * 100);
+          console.log(`📸 Size reduction: ${sizeReduction}% (${(file.buffer.length / 1024 / 1024).toFixed(2)} MB → ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
           
-          // Upload to special-requests bucket
-          console.log(`📤 Uploading ${uniqueFilename} to special-requests bucket...`);
+          console.log(`📸 Processing completed: ${file.originalname} -> ${finalFilename}`);
+
+          // Upload the processed image
+          console.log(`📤 Uploading: ${finalFilename} (${finalBuffer.length} bytes)`);
           
+          const fileObject = new File([finalBuffer], finalFilename, { type: finalMimeType });
           const { data: uploadData, error: uploadError } = await supabaseClient.storage
             .from('special-requests')
-            .upload(uniqueFilename, finalBuffer, {
-              contentType: finalMimeType,
-              cacheControl: '3600',
-              upsert: false
-            });
+            .upload(finalFilename, fileObject);
 
           if (uploadError) {
-            console.error(`❌ Upload failed for ${uniqueFilename}:`, uploadError);
+            console.error(`📸 Error uploading processed file:`, uploadError);
             throw uploadError;
           }
-
-          // Get public URL
-          const { data: urlData } = supabaseClient.storage
-            .from('special-requests')
-            .getPublicUrl(uniqueFilename);
-
-          if (urlData?.publicUrl) {
-            photoUrls.push(urlData.publicUrl);
-            console.log(`✅ Photo uploaded successfully: ${urlData.publicUrl}`);
-          } else {
-            console.error(`❌ Failed to get public URL for ${uniqueFilename}`);
-          }
+          
+          console.log('📸 Upload successful:', uploadData);
+          const imageUrl = `${SUPABASE_URL}/storage/v1/object/public/special-requests/${finalFilename}`;
+          console.log('📸 Generated image URL:', imageUrl);
+          photoUrls.push(imageUrl);
 
         } catch (photoError) {
-          console.error(`❌ Error processing photo ${file.originalname}:`, photoError);
+          console.error(`📸 Error processing file ${file.originalname}:`, photoError);
           // Continue with other photos even if one fails
         }
       }
@@ -5033,59 +5114,168 @@ app.post('/api/item-donation-requests', (req, res, next) => {
     }
 
     // Process photo uploads if any
+    console.log('🎁 Processing photos:', req.files ? req.files.length : 0, 'files');
     if (req.files && req.files.length > 0) {
       // Check if special-requests bucket exists
       const { data: bucketData, error: bucketError } = await supabaseClient.storage.getBucket('special-requests');
       if (bucketError) {
+        console.error('🎁 Bucket error:', bucketError);
         return res.status(500).json({ error: 'Storage bucket not accessible', details: bucketError });
       }
+      console.log('🎁 Bucket exists:', bucketData);
+      
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
+        console.log(`🎁 Processing file ${i + 1}/${req.files.length}:`, file.originalname, file.size, 'bytes');
+        
         try {
+          // Check if the image format is supported
+          const isSupported = imageProcessingService.isImageFormatSupported(file.originalname);
+          console.log(`🎁 Format supported: ${isSupported} (${file.originalname})`);
+          
           let finalBuffer = file.buffer;
           let finalFilename = file.originalname;
           let finalMimeType = file.mimetype;
-          // Optimize image if supported
-          if (imageProcessingService.isImageFormatSupported(file.originalname)) {
-            const conversionResult = await imageProcessingService.processImage(
+          
+          // Always process images for optimization and format conversion
+          console.log(`🎁 Processing image: ${file.originalname} (Original size: ${(file.buffer.length / 1024 / 1024).toFixed(2)} MB)`);
+          
+          let conversionResult;
+          
+          // Convert unsupported formats (HEIC, etc.) or optimize all images
+          if (!isSupported || file.originalname.toLowerCase().includes('.heic')) {
+            console.log(`🎁 Converting unsupported format: ${file.originalname}`);
+            
+            conversionResult = await imageProcessingService.convertImageToWebFormat(
               file.buffer,
               file.originalname,
-              { quality: 80, maxWidth: 1920, maxHeight: 1080 }
+              {
+                quality: 85,
+                maxWidth: 1920,
+                maxHeight: 1080,
+                removeMetadata: true
+              }
             );
-            if (conversionResult.success) {
-              finalBuffer = conversionResult.buffer;
-              finalFilename = conversionResult.filename;
-              finalMimeType = conversionResult.mimeType;
+          } else {
+            // Optimize supported formats (JPEG, PNG, etc.) for better performance
+            console.log(`🎁 Optimizing supported image: ${file.originalname}`);
+            
+            const optimizedBuffer = await imageProcessingService.processImageWithSharp(
+              file.buffer,
+              {
+                format: file.originalname.toLowerCase().includes('.png') ? 'png' : 'jpeg',
+                quality: 85,
+                maxWidth: 1920,
+                maxHeight: 1080,
+                removeMetadata: true
+              }
+            );
+            
+            const extension = imageProcessingService.getFileExtension(file.originalname);
+            const outputExtension = extension === 'jpg' ? 'jpg' : (extension === 'png' ? 'png' : 'jpg');
+            
+            conversionResult = {
+              buffer: optimizedBuffer,
+              filename: `${uuidv4()}.${outputExtension}`,
+              mimeType: `image/${outputExtension === 'jpg' ? 'jpeg' : outputExtension}`,
+              originalFormat: extension,
+              outputFormat: outputExtension === 'jpg' ? 'jpeg' : outputExtension
+            };
+          }
+          
+          // Set processed file details
+          finalBuffer = conversionResult.buffer;
+          finalFilename = conversionResult.filename;
+          finalMimeType = conversionResult.mimeType;
+          
+          // Additional compression if file is still over 2MB
+          const targetSizeInBytes = 2 * 1024 * 1024; // 2MB
+          if (finalBuffer.length > targetSizeInBytes) {
+            console.log(`🎁 File still over 2MB (${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB), applying aggressive compression...`);
+            
+            let currentBuffer = finalBuffer;
+            let quality = 70;
+            let maxWidth = 1600;
+            let maxHeight = 1200;
+            let attempts = 0;
+            const maxAttempts = 5;
+            
+            while (currentBuffer.length > targetSizeInBytes && attempts < maxAttempts) {
+              attempts++;
+              console.log(`🎁 Compression attempt ${attempts}/${maxAttempts} - Quality: ${quality}, Max dimensions: ${maxWidth}x${maxHeight}`);
+              
+              try {
+                const compressedBuffer = await imageProcessingService.processImageWithSharp(
+                  currentBuffer,
+                  {
+                    format: 'jpeg', // Force JPEG for better compression
+                    quality: quality,
+                    maxWidth: maxWidth,
+                    maxHeight: maxHeight,
+                    removeMetadata: true
+                  }
+                );
+                
+                currentBuffer = compressedBuffer;
+                console.log(`🎁 After compression attempt ${attempts}: ${(currentBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+                
+                // Reduce quality and dimensions for next attempt
+                quality = Math.max(30, quality - 10);
+                maxWidth = Math.max(800, maxWidth - 200);
+                maxHeight = Math.max(600, maxHeight - 150);
+                
+              } catch (compressionError) {
+                console.error(`🎁 Compression attempt ${attempts} failed:`, compressionError.message);
+                break;
+              }
+            }
+            
+            // Update final values
+            finalBuffer = currentBuffer;
+            finalMimeType = 'image/jpeg';
+            finalFilename = finalFilename.replace(/\.(png|webp|gif)$/i, '.jpg');
+            
+            if (finalBuffer.length > targetSizeInBytes) {
+              console.log(`🎁 Warning: File still over 2MB after ${maxAttempts} attempts. Final size: ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+            } else {
+              console.log(`🎁 Successfully compressed to ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB`);
             }
           }
-          // Generate unique filename
-          const timestamp = Date.now();
-          const randomSuffix = Math.random().toString(36).substring(7);
-          const fileExtension = finalFilename.split('.').pop();
-          const uniqueFilename = `special-request-${timestamp}-${randomSuffix}.${fileExtension}`;
-          // Upload to special-requests bucket
+          
+          // Calculate size reduction
+          const sizeReduction = Math.round((1 - finalBuffer.length / file.buffer.length) * 100);
+          console.log(`🎁 Size reduction: ${sizeReduction}% (${(file.buffer.length / 1024 / 1024).toFixed(2)} MB → ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+          
+          console.log(`🎁 Processing completed: ${file.originalname} -> ${finalFilename}`);
+
+          // Upload the processed image
+          console.log(`🎁 Uploading: ${finalFilename} (${finalBuffer.length} bytes)`);
+          
+          const fileObject = new File([finalBuffer], finalFilename, { type: finalMimeType });
           const { data: uploadData, error: uploadError } = await supabaseClient.storage
             .from('special-requests')
-            .upload(uniqueFilename, finalBuffer, {
-              contentType: finalMimeType,
-              cacheControl: '3600',
-              upsert: false
-            });
-          if (uploadError) throw uploadError;
-          // Get public URL
-          const { data: urlData } = supabaseClient.storage
-            .from('special-requests')
-            .getPublicUrl(uniqueFilename);
-          if (urlData?.publicUrl) {
-            photoUrls.push(urlData.publicUrl);
+            .upload(finalFilename, fileObject);
+
+          if (uploadError) {
+            console.error('🎁 Error uploading processed file:', uploadError);
+            throw uploadError;
           }
+          
+          console.log('🎁 Upload successful:', uploadData);
+          const imageUrl = `${SUPABASE_URL}/storage/v1/object/public/special-requests/${finalFilename}`;
+          console.log('🎁 Generated image URL:', imageUrl);
+          photoUrls.push(imageUrl);
+          
         } catch (photoError) {
+          console.error(`🎁 Error processing file ${file.originalname}:`, photoError);
           // Continue with other photos even if one fails
         }
       }
+      console.log('🎁 Final photoUrls array:', photoUrls);
     }
 
     // Prepare data for database insertion
+    console.log('🎁 Preparing database insert with photoUrls:', photoUrls);
     const insertData = {
       donation_items: donationItems,
       custom_item: customItem || null,
@@ -5109,6 +5299,7 @@ app.post('/api/item-donation-requests', (req, res, next) => {
       status: 'pending',
       created_at: new Date().toISOString()
     };
+    console.log('🎁 Insert data photo_urls field:', insertData.photo_urls);
     if (distanceData && distanceData.success) {
       insertData.calculated_distance_km = distanceData.distanceKm;
       insertData.calculated_duration_seconds = distanceData.duration;
