@@ -37,6 +37,7 @@ app.use(cors({
 }));
 
 app.use(json()); // for parsing application/json
+app.use(express.urlencoded({ extended: true, limit: '10mb' })); // for parsing application/x-www-form-urlencoded
 
 // Set up Multer for file uploads (in-memory storage for simplicity)
 const storage = multer.memoryStorage();
@@ -1980,168 +1981,7 @@ app.post('/api/special-requests', (req, res, next) => {
   }
 });
 
-// 8. Item Donation Request Endpoint with Distance Calculation
-app.post('/api/item-donation-requests', async (req, res) => {
-  try {
-    const {
-      donationItems,
-      customItem,
-      contactInfo,
-      pickupLocation,
-      donationLocation,
-      pickupLocationCoords,
-      donationLocationCoords,
-      preferredPickupDate,
-      isDateFlexible,
-      donationType,
-      specialInstructions,
-      organizationName,
-      organizationContact,
-      totalEstimatedValue,
-      itemCondition,
-      photoUrls
-    } = req.body;
-
-    console.log('🎁 Item Donation Request - Full Body:', req.body);
-
-    // Validate required fields
-    if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
-      return res.status(400).json({ error: 'Contact information is required' });
-    }
-
-    if (!donationItems || (Array.isArray(donationItems) && donationItems.length === 0)) {
-      return res.status(400).json({ error: 'At least one donation item is required' });
-    }
-
-    // Calculate distance if coordinates are provided
-    let distanceData = null;
-    if (pickupLocationCoords && donationLocationCoords) {
-      console.log('🛣️ Calculating distance for item donation request...');
-      console.log('📍 From:', pickupLocationCoords, 'To:', donationLocationCoords);
-      
-      try {
-        distanceData = await calculateDistanceBetweenLocations(pickupLocationCoords, donationLocationCoords);
-        
-        if (distanceData.success) {
-          console.log('✅ Distance calculated successfully:', {
-            distance: `${distanceData.distanceKm} km`,
-            duration: distanceData.durationText,
-            provider: distanceData.provider
-          });
-        } else {
-          console.log('⚠️ Distance calculation failed:', distanceData.error);
-          // Continue with request even if distance calculation fails
-        }
-      } catch (distanceError) {
-        console.error('❌ Distance calculation error:', distanceError);
-        // Continue with request even if distance calculation fails
-      }
-    } else {
-      console.log('📍 No coordinates provided, skipping distance calculation');
-    }
-
-    // Prepare data for database insertion
-    const insertData = {
-      donation_items: donationItems,
-      custom_item: customItem || null,
-      contact_info: contactInfo,
-      pickup_location: pickupLocation || null,
-      donation_location: donationLocation || null,
-      pickup_location_coords: pickupLocationCoords || null,
-      donation_location_coords: donationLocationCoords || null,
-      preferred_pickup_date: preferredPickupDate || null,
-      is_date_flexible: Boolean(isDateFlexible),
-      donation_type: donationType || 'charity', // charity, recycling, other
-      special_instructions: specialInstructions || null,
-      organization_name: organizationName || null,
-      organization_contact: organizationContact || null,
-      total_estimated_value: totalEstimatedValue ? parseFloat(totalEstimatedValue) : null,
-      item_condition: itemCondition || null,
-      photo_urls: photoUrls || [],
-      status: 'pending',
-      created_at: new Date().toISOString()
-    };
-
-    // Add distance data if available
-    if (distanceData && distanceData.success) {
-      insertData.calculated_distance_km = distanceData.distanceKm;
-      insertData.calculated_duration_seconds = distanceData.duration;
-      insertData.calculated_duration_text = distanceData.durationText;
-      insertData.distance_provider = distanceData.provider;
-    }
-
-    console.log('💾 Inserting item donation request into database...');
-
-    const { data, error } = await supabase
-      .from('item_donations')
-      .insert([insertData])
-      .select();
-
-    if (error) {
-      console.error('❌ Database insert error:', error);
-      
-      // If table doesn't exist, provide helpful error message
-      if (error.code === 'PGRST116' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
-        console.log('⚠️ Item donations table does not exist. Please create it first.');
-        return res.status(500).json({ 
-          error: 'Item donations table not found. Please contact administrator to set up the database table.',
-          details: 'The item_donations table needs to be created in the database.'
-        });
-      }
-      
-      return res.status(500).json({ 
-        error: 'Failed to save donation request.',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-
-    console.log('✅ Item donation request saved successfully');
-
-    // Send confirmation email (optional - would need to implement sendDonationRequestEmail function)
-    try {
-      console.log('📧 Sending donation confirmation email...');
-      // TODO: Implement sendDonationRequestEmail function similar to sendMovingRequestEmail
-      // const emailResult = await sendDonationRequestEmail({
-      //   customerEmail: contactInfo.email,
-      //   customerFirstName: contactInfo.firstName,
-      //   customerLastName: contactInfo.lastName,
-      //   donationType,
-      //   pickupLocation,
-      //   donationLocation,
-      //   preferredPickupDate,
-      //   donationItems,
-      //   distanceInfo: distanceData && distanceData.success ? {
-      //     distance: distanceData.distanceText,
-      //     duration: distanceData.durationText
-      //   } : null
-      // });
-      
-      console.log('📧 Email functionality not yet implemented for donations');
-    } catch (emailError) {
-      console.error('❌ Error sending donation confirmation email:', emailError);
-    }
-
-    // Return response with distance data included
-    const response = {
-      message: 'Item donation request saved successfully.',
-      data: data[0],
-      distanceCalculation: distanceData && distanceData.success ? {
-        success: true,
-        distance: distanceData.distanceText,
-        duration: distanceData.durationText,
-        provider: distanceData.provider
-      } : null
-    };
-
-    res.status(201).json(response);
-  } catch (err) {
-    console.error('❌ Error in item donation endpoint:', err);
-    res.status(500).json({ 
-      error: 'Internal Server Error',
-      details: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-});
+// 8. Item Donation Request Endpoint with Distance Calculation (REMOVED DUPLICATE)
 
 // Get item donation requests (admin endpoint)
 app.get('/api/item-donation-requests', authenticateUser, async (req, res) => {
@@ -5102,6 +4942,12 @@ app.post('/api/item-donation-requests', (req, res, next) => {
     console.log('🎁 Item Donation Request - Full Body:', req.body);
     console.log('🎁 Item Donation Request - Files:', req.files?.length || 0);
     
+    // Debug: Log all form fields
+    console.log('🎁 Form fields received:');
+    Object.keys(req.body).forEach(key => {
+      console.log(`  ${key}:`, req.body[key]);
+    });
+    
     // Check if we have files (indicates multipart/form-data)
     const hasFiles = req.files && req.files.length > 0;
     const contentType = req.get('Content-Type') || '';
@@ -5119,7 +4965,30 @@ app.post('/api/item-donation-requests', (req, res, next) => {
       try {
         donationItems = body.donationItems ? JSON.parse(body.donationItems) : [];
         customItem = body.customItem || null;
-        contactInfo = body.contactInfo ? JSON.parse(body.contactInfo) : {};
+        
+        // Handle contactInfo - try JSON first, then fallback to individual fields
+        if (body.contactInfo) {
+          try {
+            contactInfo = JSON.parse(body.contactInfo);
+          } catch (contactParseError) {
+            console.log('🎁 ContactInfo JSON parse failed, using individual fields');
+            contactInfo = {
+              firstName: body.contactFirstName || '',
+              lastName: body.contactLastName || '',
+              email: body.contactEmail || '',
+              phone: body.contactPhone || ''
+            };
+          }
+        } else {
+          // Use individual fields if contactInfo JSON is not provided
+          contactInfo = {
+            firstName: body.contactFirstName || '',
+            lastName: body.contactLastName || '',
+            email: body.contactEmail || '',
+            phone: body.contactPhone || ''
+          };
+        }
+        
         pickupLocation = body.pickupLocation || null;
         donationLocation = body.donationLocation || null;
         pickupLocationCoords = body.pickupLocationCoords ? JSON.parse(body.pickupLocationCoords) : null;
