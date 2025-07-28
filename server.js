@@ -3361,7 +3361,7 @@ function calculatePricingBreakdown(params) {
     const baseCharge = isCityDay ? cityCharge.city_day : cityCharge.normal;
 
     // Calculate point-based cost
-    const pointBasedCost = totalPoints * config.baseMultiplier * (baseCharge / 10); // Normalize base charge
+    const pointBasedCost = totalPoints * config.baseMultipliers.houseMovingItemMultiplier * (baseCharge / 10); // Normalize base charge
 
     // Weekend multiplier
     const isWeekend = date.getDay() === 0 || date.getDay() === 6;
@@ -4896,10 +4896,11 @@ app.get('/api/constants', async (req, res) => {
     try {
         console.log('📋 Fetching all constants...');
         
-        // Fetch all three datasets in parallel
-        const [furnitureResult, cityChargesResult] = await Promise.all([
+        // Fetch all four datasets in parallel
+        const [furnitureResult, cityChargesResult, pricingConfigResult] = await Promise.all([
             supabaseClient.from('furniture_items').select('*'),
-            supabaseClient.from('city_base_charges').select('*')
+            supabaseClient.from('city_base_charges').select('*'),
+            supabaseClient.from('pricing_config').select('*').eq('is_active', true).single()
         ]);
 
         // Handle furniture items
@@ -4919,6 +4920,16 @@ app.get('/api/constants', async (req, res) => {
                 success: false, 
                 error: 'Failed to fetch city base charges',
                 details: cityChargesResult.error.message 
+            });
+        }
+
+        // Handle pricing config
+        if (pricingConfigResult.error) {
+            console.error('❌ Error fetching pricing config:', pricingConfigResult.error);
+            return res.status(500).json({ 
+                success: false, 
+                error: 'Failed to fetch pricing config',
+                details: pricingConfigResult.error.message 
             });
         }
 
@@ -4950,17 +4961,22 @@ app.get('/api/constants', async (req, res) => {
             };
         }
 
+        // Process pricing config - extract the config object
+        const pricingConfig = pricingConfigResult.data?.config || {};
+
         const response = {
             success: true,
             data: {
                 furnitureItems,
                 itemCategories,
-                cityBaseCharges
+                cityBaseCharges,
+                pricingConfig
             },
             meta: {
                 furnitureItemsCount: furnitureItems.length,
                 categoriesCount: itemCategories.length,
                 citiesCount: Object.keys(cityBaseCharges).length,
+                hasPricingConfig: !!pricingConfigResult.data,
                 timestamp: new Date().toISOString()
             }
         };
@@ -4968,7 +4984,8 @@ app.get('/api/constants', async (req, res) => {
         console.log('✅ Constants fetched successfully:', {
             furnitureItems: furnitureItems.length,
             categories: itemCategories.length,
-            cities: Object.keys(cityBaseCharges).length
+            cities: Object.keys(cityBaseCharges).length,
+            hasPricingConfig: !!pricingConfigResult.data
         });
 
         res.json(response);

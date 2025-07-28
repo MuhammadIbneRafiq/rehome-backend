@@ -135,14 +135,39 @@ CREATE TRIGGER update_services_updated_at BEFORE UPDATE ON services FOR EACH ROW
 
 -- Insert default pricing configuration
 INSERT INTO pricing_config (config, is_active) VALUES ('{
-  "baseMultiplier": 1.0,
+  "baseMultipliers": {
+    "houseMovingItemMultiplier": 2.0,
+    "itemTransportMultiplier": 1.0,
+    "addonMultiplier": 3.0
+  },
+  "distancePricing": {
+    "smallDistance": { "threshold": 10, "rate": 0 },
+    "mediumDistance": { "threshold": 50, "rate": 0.7 },
+    "longDistance": { "rate": 0.5 }
+  },
+  "carryingMultipliers": {
+    "lowValue": { "threshold": 6, "multiplier": 0.015 },
+    "highValue": { "multiplier": 0.040 }
+  },
+  "assemblyMultipliers": {
+    "lowValue": { "threshold": 6, "multiplier": 1.80 },
+    "highValue": { "multiplier": 4.2 }
+  },
+  "extraHelperPricing": {
+    "smallMove": { "threshold": 30, "price": 30 },
+    "bigMove": { "price": 60 }
+  },
+  "cityRange": {
+    "baseRadius": 8,
+    "extraKmRate": 3
+  },
+  "studentDiscount": 0.1,
   "weekendMultiplier": 1.2,
   "cityDayMultiplier": 1.3,
   "floorChargePerLevel": 25.0,
   "elevatorDiscount": 0.8,
   "assemblyChargePerItem": 30.0,
   "extraHelperChargePerItem": 20.0,
-  "studentDiscount": 0.15,
   "earlyBookingDiscount": 0.1,
   "minimumCharge": 75.0
 }', true);
