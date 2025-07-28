@@ -2129,9 +2129,7 @@ app.put('/api/item-donation-requests/:id/status', authenticateUser, async (req, 
       .from('item_donations')
       .update({ 
         status, 
-        admin_notes: adminNotes || null,
         updated_at: new Date().toISOString(),
-        updated_by: userEmail
       })
       .eq('id', id)
       .select();
@@ -2218,9 +2216,7 @@ app.put('/api/special-requests/:id/status', authenticateUser, async (req, res) =
       .from('services')
       .update({ 
         status, 
-        admin_notes: adminNotes || null,
         updated_at: new Date().toISOString(),
-        updated_by: userEmail
       })
       .eq('id', id)
       .select();
