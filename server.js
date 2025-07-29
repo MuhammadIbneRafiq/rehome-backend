@@ -5679,6 +5679,88 @@ app.delete('/api/admin/marketplace-item-details/:id', authenticateAdmin, async (
   }
 });
 
+// Get dynamic pricing multipliers based on marketplace item details
+app.get('/api/marketplace-pricing-multipliers', async (req, res) => {
+  try {
+    console.log('💰 Fetching marketplace pricing multipliers...');
+    
+    // Get all marketplace item details to calculate multipliers
+    const { data: itemDetails, error: itemError } = await supabaseClient
+      .from('marketplace_item_details')
+      .select('*')
+      .eq('is_active', true);
+
+    if (itemError) {
+      console.error('❌ Error fetching marketplace item details:', itemError);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to fetch marketplace item details',
+        details: itemError.message 
+      });
+    }
+
+    // Calculate dynamic multipliers based on points
+    const maxPoints = Math.max(...itemDetails.map(item => item.points));
+    const minPoints = Math.min(...itemDetails.map(item => item.points));
+    const avgPoints = itemDetails.reduce((sum, item) => sum + item.points, 0) / itemDetails.length;
+
+    // Define base costs and calculate multipliers
+    const baseCarryingCost = 3; // Base carrying cost
+    const baseAssemblyCost = 60; // Base assembly cost
+    
+    // Calculate multipliers based on points ranges
+    const multipliers = {
+      carrying: {
+        lowPoints: {
+          threshold: Math.floor(avgPoints), // Below average points
+          multiplier: 1.0, // Base multiplier
+          cost: baseCarryingCost
+        },
+        highPoints: {
+          threshold: Math.ceil(avgPoints), // Above average points
+          multiplier: Math.max(1.5, maxPoints / avgPoints), // Dynamic multiplier based on max points
+          cost: Math.round(baseCarryingCost * Math.max(1.5, maxPoints / avgPoints))
+        }
+      },
+      assembly: {
+        lowPoints: {
+          threshold: Math.floor(avgPoints), // Below average points
+          multiplier: 1.0, // Base multiplier
+          cost: baseAssemblyCost
+        },
+        highPoints: {
+          threshold: Math.ceil(avgPoints), // Above average points
+          multiplier: Math.max(1.5, maxPoints / avgPoints), // Dynamic multiplier based on max points
+          cost: Math.round(baseAssemblyCost * Math.max(1.5, maxPoints / avgPoints))
+        }
+      },
+      points: {
+        min: minPoints,
+        max: maxPoints,
+        average: Math.round(avgPoints * 10) / 10,
+        threshold: Math.ceil(avgPoints) // Threshold for high points category
+      }
+    };
+
+    console.log('✅ Marketplace pricing multipliers calculated successfully');
+    res.json({
+      success: true,
+      data: multipliers,
+      meta: {
+        itemCount: itemDetails.length,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('❌ Error in marketplace pricing multipliers endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
 export default app;
 
 // Start the server only when running this file directly (for local development)
