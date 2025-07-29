@@ -5643,9 +5643,8 @@ app.delete('/api/admin/marketplace-item-details/:id', authenticateAdmin, async (
     
     const { data, error } = await supabaseClient
       .from('marketplace_item_details')
-      .update({ is_active: false })
-      .eq('id', id)
-      .select();
+      .delete()
+      .eq('id', id);
 
     if (error) {
       console.error('❌ Error deleting marketplace item detail:', error);
