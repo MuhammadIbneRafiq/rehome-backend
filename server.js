@@ -5641,22 +5641,39 @@ app.delete('/api/admin/marketplace-item-details/:id', authenticateAdmin, async (
     const { id } = req.params;
     console.log('📋 Admin deleting marketplace item detail:', id);
     
-    const { data } = await supabaseClient
+    // First check if the item exists
+    const { data: existingItem, error: checkError } = await supabaseClient
       .from('marketplace_item_details')
-      .delete()
-      .eq('id', id);
+      .select('*')
+      .eq('id', id)
+      .single();
 
-    if (!data || data.length === 0) {
+    if (checkError || !existingItem) {
+      console.log('❌ Marketplace item detail not found:', id);
       return res.status(404).json({ 
         success: false, 
         error: 'Marketplace item detail not found' 
       });
     }
 
-    console.log('✅ Marketplace item detail deleted successfully:', data[0]);
+    // Delete the item
+    const { error: deleteError } = await supabaseClient
+      .from('marketplace_item_details')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      console.error('❌ Error deleting marketplace item detail:', deleteError);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to delete marketplace item detail',
+        details: deleteError.message 
+      });
+    }
+
     res.json({
       success: true,
-      data: data[0],
+      data: existingItem,
       message: 'Marketplace item detail deleted successfully'
     });
   } catch (err) {
