@@ -5436,6 +5436,607 @@ app.post('/api/item-donation-requests', (req, res, next) => {
   }
 });
 
+// ====================================================
+// MARKETPLACE ITEM DETAILS API ENDPOINTS
+// ====================================================
+
+// Get all marketplace item details
+app.get('/api/marketplace-item-details', async (req, res) => {
+  try {
+    console.log('📋 Fetching marketplace item details...');
+    
+    const { data, error } = await supabaseClient
+      .from('marketplace_item_details')
+      .select('*')
+      .eq('is_active', true)
+      .order('category', { ascending: true })
+      .order('subcategory', { ascending: true });
+
+    if (error) {
+      console.error('❌ Error fetching marketplace item details:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to fetch marketplace item details',
+        details: error.message 
+      });
+    }
+
+    console.log('✅ Marketplace item details fetched successfully:', data.length, 'items');
+    res.json({
+      success: true,
+      data: data || [],
+      meta: {
+        count: data?.length || 0,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('❌ Error in marketplace item details endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
+// Admin endpoints for managing marketplace item details
+app.get('/api/admin/marketplace-item-details', authenticateAdmin, async (req, res) => {
+  try {
+    console.log('📋 Admin fetching marketplace item details...');
+    
+    const { data, error } = await supabaseClient
+      .from('marketplace_item_details')
+      .select('*')
+      .order('category', { ascending: true })
+      .order('subcategory', { ascending: true });
+
+    if (error) {
+      console.error('❌ Error fetching marketplace item details:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to fetch marketplace item details',
+        details: error.message 
+      });
+    }
+
+    console.log('✅ Admin marketplace item details fetched successfully:', data.length, 'items');
+    res.json({
+      success: true,
+      data: data || [],
+      meta: {
+        count: data?.length || 0,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('❌ Error in admin marketplace item details endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
+// Create new marketplace item detail
+app.post('/api/admin/marketplace-item-details', authenticateAdmin, async (req, res) => {
+  try {
+    const { category, subcategory, points } = req.body;
+    console.log('📋 Admin creating marketplace item detail:', { category, subcategory, points });
+    
+    if (!category || points === undefined) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Category and points are required' 
+      });
+    }
+
+    const { data, error } = await supabaseClient
+      .from('marketplace_item_details')
+      .insert([{
+        category,
+        subcategory: subcategory || null,
+        points: parseInt(points) || 1,
+        is_active: true
+      }])
+      .select();
+
+    if (error) {
+      console.error('❌ Error creating marketplace item detail:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to create marketplace item detail',
+        details: error.message 
+      });
+    }
+
+    console.log('✅ Marketplace item detail created successfully:', data[0]);
+    res.status(201).json({
+      success: true,
+      data: data[0],
+      message: 'Marketplace item detail created successfully'
+    });
+  } catch (err) {
+    console.error('❌ Error in create marketplace item detail endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
+// Update marketplace item detail
+app.put('/api/admin/marketplace-item-details/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { category, subcategory, points, is_active } = req.body;
+    console.log('📋 Admin updating marketplace item detail:', { id, category, subcategory, points, is_active });
+    
+    const updateData = {};
+    if (category !== undefined) updateData.category = category;
+    if (subcategory !== undefined) updateData.subcategory = subcategory;
+    if (points !== undefined) updateData.points = parseInt(points);
+    if (is_active !== undefined) updateData.is_active = is_active;
+
+    const { data, error } = await supabaseClient
+      .from('marketplace_item_details')
+      .update(updateData)
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      console.error('❌ Error updating marketplace item detail:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to update marketplace item detail',
+        details: error.message 
+      });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Marketplace item detail not found' 
+      });
+    }
+
+    console.log('✅ Marketplace item detail updated successfully:', data[0]);
+    res.json({
+      success: true,
+      data: data[0],
+      message: 'Marketplace item detail updated successfully'
+    });
+  } catch (err) {
+    console.error('❌ Error in update marketplace item detail endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
+// Delete marketplace item detail (soft delete)
+app.delete('/api/admin/marketplace-item-details/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('📋 Admin deleting marketplace item detail:', id);
+    
+    // First check if the item exists
+    const { data: existingItem, error: checkError } = await supabaseClient
+      .from('marketplace_item_details')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (checkError || !existingItem) {
+      console.log('❌ Marketplace item detail not found:', id);
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Marketplace item detail not found' 
+      });
+    }
+
+    // Delete the item
+    const { error: deleteError } = await supabaseClient
+      .from('marketplace_item_details')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      console.error('❌ Error deleting marketplace item detail:', deleteError);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to delete marketplace item detail',
+        details: deleteError.message 
+      });
+    }
+
+    res.json({
+      success: true,
+      data: existingItem,
+      message: 'Marketplace item detail deleted successfully'
+    });
+  } catch (err) {
+    console.error('❌ Error in delete marketplace item detail endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
+// Get dynamic pricing multipliers based on marketplace item details
+app.get('/api/marketplace-pricing-multipliers', async (req, res) => {
+  try {
+    console.log('💰 Fetching marketplace pricing multipliers...');
+    
+    // Get all marketplace item details to calculate multipliers
+    const { data: itemDetails, error: itemError } = await supabaseClient
+      .from('marketplace_item_details')
+      .select('*')
+      .eq('is_active', true);
+
+    if (itemError) {
+      console.error('❌ Error fetching marketplace item details:', itemError);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to fetch marketplace item details',
+        details: itemError.message 
+      });
+    }
+
+    // Calculate dynamic multipliers based on points
+    const maxPoints = Math.max(...itemDetails.map(item => item.points));
+    const minPoints = Math.min(...itemDetails.map(item => item.points));
+    const avgPoints = itemDetails.reduce((sum, item) => sum + item.points, 0) / itemDetails.length;
+
+    // Define base costs and calculate multipliers
+    const baseCarryingCost = 3; // Base carrying cost
+    const baseAssemblyCost = 60; // Base assembly cost
+    
+    // Calculate multipliers based on points ranges
+    const multipliers = {
+      carrying: {
+        lowPoints: {
+          threshold: Math.floor(avgPoints), // Below average points
+          multiplier: 1.0, // Base multiplier
+          cost: baseCarryingCost
+        },
+        highPoints: {
+          threshold: Math.ceil(avgPoints), // Above average points
+          multiplier: Math.max(1.5, maxPoints / avgPoints), // Dynamic multiplier based on max points
+          cost: Math.round(baseCarryingCost * Math.max(1.5, maxPoints / avgPoints))
+        }
+      },
+      assembly: {
+        lowPoints: {
+          threshold: Math.floor(avgPoints), // Below average points
+          multiplier: 1.0, // Base multiplier
+          cost: baseAssemblyCost
+        },
+        highPoints: {
+          threshold: Math.ceil(avgPoints), // Above average points
+          multiplier: Math.max(1.5, maxPoints / avgPoints), // Dynamic multiplier based on max points
+          cost: Math.round(baseAssemblyCost * Math.max(1.5, maxPoints / avgPoints))
+        }
+      },
+      points: {
+        min: minPoints,
+        max: maxPoints,
+        average: Math.round(avgPoints * 10) / 10,
+        threshold: Math.ceil(avgPoints) // Threshold for high points category
+      }
+    };
+
+    console.log('✅ Marketplace pricing multipliers calculated successfully');
+    res.json({
+      success: true,
+      data: multipliers,
+      meta: {
+        itemCount: itemDetails.length,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('❌ Error in marketplace pricing multipliers endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
+// ====================================================
+// SALES HISTORY API ENDPOINTS
+// ====================================================
+
+// Store sales history after checkout completion
+app.post('/api/sales-history', async (req, res) => {
+  try {
+    console.log('💰 Storing sales history:', req.body);
+    
+    const {
+      orderId,
+      customerEmail,
+      customerName,
+      customerPhone,
+      itemName,
+      itemCategory,
+      itemSubcategory,
+      itemPoints,
+      itemPrice,
+      quantity,
+      totalAmount,
+      paymentMethod,
+      paymentStatus,
+      orderStatus,
+      pickupAddress,
+      dropoffAddress,
+      pickupDate,
+      pickupTime,
+      deliveryFee,
+      assemblyFee,
+      carryingFee,
+      extraHelperFee,
+      studentDiscount,
+      subtotal,
+      taxAmount,
+      finalTotal,
+      currency,
+      notes
+    } = req.body;
+
+    // Validate required fields
+    if (!orderId || !customerEmail || !itemName || !itemPrice || !finalTotal) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: orderId, customerEmail, itemName, itemPrice, finalTotal'
+      });
+    }
+
+    const salesData = {
+      order_id: orderId,
+      customer_email: customerEmail,
+      customer_name: customerName || null,
+      customer_phone: customerPhone || null,
+      item_name: itemName,
+      item_category: itemCategory || null,
+      item_subcategory: itemSubcategory || null,
+      item_points: parseInt(itemPoints) || 0,
+      item_price: parseFloat(itemPrice),
+      quantity: parseInt(quantity) || 1,
+      total_amount: parseFloat(totalAmount),
+      payment_method: paymentMethod || 'card',
+      payment_status: paymentStatus || 'completed',
+      order_status: orderStatus || 'completed',
+      pickup_address: pickupAddress || null,
+      dropoff_address: dropoffAddress || null,
+      pickup_date: pickupDate || null,
+      pickup_time: pickupTime || null,
+      delivery_fee: parseFloat(deliveryFee) || 0,
+      assembly_fee: parseFloat(assemblyFee) || 0,
+      carrying_fee: parseFloat(carryingFee) || 0,
+      extra_helper_fee: parseFloat(extraHelperFee) || 0,
+      student_discount: parseFloat(studentDiscount) || 0,
+      subtotal: parseFloat(subtotal),
+      tax_amount: parseFloat(taxAmount) || 0,
+      final_total: parseFloat(finalTotal),
+      currency: currency || 'EUR',
+      notes: notes || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    console.log('💰 Inserting sales history data:', salesData);
+
+    const { data, error } = await supabase
+      .from('sales_history')
+      .insert([salesData])
+      .select();
+
+    if (error) {
+      console.error('❌ Error storing sales history:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to store sales history',
+        details: error.message
+      });
+    }
+
+    console.log('✅ Sales history stored successfully:', data[0]);
+    res.status(201).json({
+      success: true,
+      data: data[0],
+      message: 'Sales history stored successfully'
+    });
+
+  } catch (err) {
+    console.error('❌ Error in sales history endpoint:', err);
+    res.status(500).json({
+      success: false,
+      error: 'Internal Server Error',
+      details: err.message
+    });
+  }
+});
+
+// Get sales history (admin endpoint)
+app.get('/api/admin/sales-history', authenticateAdmin, async (req, res) => {
+  try {
+    console.log('📊 Admin fetching sales history...');
+    
+    const { page = 1, limit = 50, search, startDate, endDate, category } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    let query = supabase
+      .from('sales_history')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    // Apply filters
+    if (search) {
+      query = query.or(`customer_email.ilike.%${search}%,customer_name.ilike.%${search}%,item_name.ilike.%${search}%,order_id.ilike.%${search}%`);
+    }
+    
+    if (startDate) {
+      query = query.gte('created_at', startDate);
+    }
+    
+    if (endDate) {
+      query = query.lte('created_at', endDate);
+    }
+    
+    if (category) {
+      query = query.eq('item_category', category);
+    }
+
+    // Get total count for pagination
+    const { count, error: countError } = await supabase
+      .from('sales_history')
+      .select('*', { count: 'exact', head: true });
+
+    if (countError) {
+      console.error('❌ Error counting sales history:', countError);
+    }
+
+    // Apply pagination
+    query = query.range(offset, offset + parseInt(limit) - 1);
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('❌ Error fetching sales history:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch sales history',
+        details: error.message
+      });
+    }
+
+    console.log('✅ Sales history fetched successfully:', data.length, 'records');
+    res.json({
+      success: true,
+      data: data || [],
+      meta: {
+        count: data?.length || 0,
+        total: count || 0,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil((count || 0) / parseInt(limit)),
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ Error in admin sales history endpoint:', err);
+    res.status(500).json({
+      success: false,
+      error: 'Internal Server Error',
+      details: err.message
+    });
+  }
+});
+
+// Get sales statistics (admin endpoint)
+app.get('/api/admin/sales-statistics', authenticateAdmin, async (req, res) => {
+  try {
+    console.log('📊 Admin fetching sales statistics...');
+    
+    const { startDate, endDate } = req.query;
+    
+    let query = supabase
+      .from('sales_history')
+      .select('*');
+
+    // Apply date filters
+    if (startDate) {
+      query = query.gte('created_at', startDate);
+    }
+    
+    if (endDate) {
+      query = query.lte('created_at', endDate);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('❌ Error fetching sales statistics:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch sales statistics',
+        details: error.message
+      });
+    }
+
+    // Calculate statistics
+    const totalSales = data?.length || 0;
+    const totalRevenue = data?.reduce((sum, sale) => sum + parseFloat(sale.final_total), 0) || 0;
+    const averageOrderValue = totalSales > 0 ? totalRevenue / totalSales : 0;
+    
+    // Group by category
+    const categoryStats = {};
+    data?.forEach(sale => {
+      const category = sale.item_category || 'Uncategorized';
+      if (!categoryStats[category]) {
+        categoryStats[category] = { count: 0, revenue: 0 };
+      }
+      categoryStats[category].count++;
+      categoryStats[category].revenue += parseFloat(sale.final_total);
+    });
+
+    // Group by date (last 30 days)
+    const last30Days = {};
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    data?.forEach(sale => {
+      const saleDate = new Date(sale.created_at);
+      if (saleDate >= thirtyDaysAgo) {
+        const dateKey = saleDate.toISOString().split('T')[0];
+        if (!last30Days[dateKey]) {
+          last30Days[dateKey] = { count: 0, revenue: 0 };
+        }
+        last30Days[dateKey].count++;
+        last30Days[dateKey].revenue += parseFloat(sale.final_total);
+      }
+    });
+
+    const statistics = {
+      totalSales,
+      totalRevenue: Math.round(totalRevenue * 100) / 100,
+      averageOrderValue: Math.round(averageOrderValue * 100) / 100,
+      categoryStats,
+      last30Days: Object.entries(last30Days).map(([date, stats]) => ({
+        date,
+        count: stats.count,
+        revenue: Math.round(stats.revenue * 100) / 100
+      })).sort((a, b) => a.date.localeCompare(b.date))
+    };
+
+    console.log('✅ Sales statistics calculated successfully');
+    res.json({
+      success: true,
+      data: statistics,
+      meta: {
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ Error in admin sales statistics endpoint:', err);
+    res.status(500).json({
+      success: false,
+      error: 'Internal Server Error',
+      details: err.message
+    });
+  }
+});
+
 export default app;
 
 // Start the server only when running this file directly (for local development)
