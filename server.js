@@ -924,20 +924,32 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
         pickupDate,
         dropoffDate,
         dateOption,
+        preferredTimeSpan,
+        extraInstructions,
+        elevatorPickup,
+        elevatorDropoff,
+        disassembly,
+        extraHelper,
+        carryingService,
+        isStudent,
+        studentId,
+        storeProofPhoto,
+        disassemblyItems,
+        extraHelperItems,
+        carryingServiceItems,
         basePrice,
         itemPoints,
         carryingCost,
         disassemblyCost,
         distanceCost,
         extraHelperCost,
-        firstLocation,
-        secondLocation,
-        firstLocationCoords,
-        secondLocationCoords,
+        distanceKm,
+        firstlocation,
+        secondlocation,
+        firstlocation_coords,
+        secondlocation_coords,
         orderSummary,
-        distanceKm
       } = payload;
-      
       console.log('📦 Item Moving Request - Full Body:', req.body);
       
       // Validate required fields
@@ -947,33 +959,6 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
 
       const selecteddate_start = selectedDateRange?.start || null;
       const selecteddate_end = selectedDateRange?.end || null;
-
-      // Calculate distance if coordinates are provided
-      let distanceData = null;
-      if (firstLocationCoords && secondLocationCoords) {
-        console.log('🛣️ Calculating distance for item moving request...');
-        console.log('📍 From:', firstLocationCoords, 'To:', secondLocationCoords);
-        
-        try {
-          distanceData = await calculateDistanceBetweenLocations(firstLocationCoords, secondLocationCoords);
-          
-          if (distanceData.success) {
-            console.log('✅ Distance calculated successfully:', {
-              distance: `${distanceData.distanceKm} km`,
-              duration: distanceData.durationText,
-              provider: distanceData.provider
-            });
-          } else {
-            console.log('⚠️ Distance calculation failed:', distanceData.error);
-            // Continue with request even if distance calculation fails
-          }
-        } catch (distanceError) {
-          console.error('❌ Distance calculation error:', distanceError);
-          // Continue with request even if distance calculation fails
-        }
-      } else {
-        console.log('📍 No coordinates provided, skipping distance calculation');
-      }
 
       // Process uploaded photos
       let photoUrls = [];
@@ -1040,47 +1025,38 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
         lastname: contactInfo.lastName,
         phone: contactInfo.phone || null,
         estimatedprice: estimatedPrice ? parseFloat(estimatedPrice) : 0,
-        selecteddate: selecteddate_start,
-        selecteddate_start,
-        selecteddate_end,
+        selecteddate: pickupDate || null,
         isdateflexible: Boolean(isDateFlexible),
-        pickup_date: pickupDate || null,
-        dropoff_date: dropoffDate || null,
+        selecteddate_start: pickupDate || null,
+        selecteddate_end: dropoffDate || null,
         date_option: dateOption || null,
-        preferred_time_span: req.body.preferredTimeSpan || null,
-        extra_instructions: req.body.extraInstructions || null,
-        elevator_pickup: req.body.elevatorPickup || false,
-        elevator_dropoff: req.body.elevatorDropoff || false,
-        disassembly: req.body.disassembly || false,
-        extra_helper: req.body.extraHelper || false,
-        carrying_service: req.body.carryingService || false,
-        is_student: req.body.isStudent || false,
-        student_id: req.body.studentId ? req.body.studentId.name : null,
-        store_proof_photo: req.body.storeProofPhoto ? req.body.storeProofPhoto.name : null,
-        disassembly_items: req.body.disassemblyItems || null,
-        extra_helper_items: req.body.extraHelperItems || null,
-        carrying_service_items: req.body.carryingServiceItems || null,
+        preferred_time_span: preferredTimeSpan || null,
+        extra_instructions: extraInstructions || null,
+        elevator_pickup: elevatorPickup || false,
+        elevator_dropoff: elevatorDropoff || false,
+        disassembly: disassembly || false,
+        extra_helper: extraHelper || false,
+        carrying_service: carryingService || false,
+        is_student: isStudent || false,
+        student_id: studentId ? studentId.name : null,
+        store_proof_photo: storeProofPhoto ? storeProofPhoto.name : null,
+        disassembly_items: disassemblyItems || null,
+        extra_helper_items: extraHelperItems || null,
+        carrying_service_items: carryingServiceItems || null,
         baseprice: basePrice ? parseFloat(basePrice) : null,
         itempoints: itemPoints ? parseInt(itemPoints, 10) : null,
         carryingcost: carryingCost ? parseFloat(carryingCost) : null,
         disassemblycost: disassemblyCost ? parseFloat(disassemblyCost) : null,
         distancecost: distanceCost ? parseFloat(distanceCost) : null,
         extrahelpercost: extraHelperCost ? parseFloat(extraHelperCost) : null,
-        firstlocation: firstLocation || null,
-        secondlocation: secondLocation || null,
-        firstlocation_coords: firstLocationCoords || null,
-        secondlocation_coords: secondLocationCoords || null,
+        firstlocation: firstlocation || null,
+        secondlocation: secondlocation || null,
+        firstlocation_coords: firstlocation_coords || null,
+        secondlocation_coords: secondlocation_coords || null,
         calculated_distance_km: distanceKm,
         photo_urls: photoUrls
       };
 
-      // Add distance data if available
-      if (distanceData && distanceData.success) {
-        insertData.calculated_distance_km = distanceData.distanceKm;
-        insertData.calculated_duration_seconds = distanceData.duration;
-        insertData.calculated_duration_text = distanceData.durationText;
-        insertData.distance_provider = distanceData.provider;
-      }
 
       console.log('💾 Inserting item moving request into database...');
 
@@ -1103,16 +1079,13 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
           customerFirstName: contactInfo.firstName,
           customerLastName: contactInfo.lastName,
           serviceType: 'item-moving',
-          pickupLocation: firstLocation,
-          dropoffLocation: secondLocation,
+          pickupLocation: firstlocation,
+          dropoffLocation: secondlocation,
           selectedDateRange,
           isDateFlexible,
           estimatedPrice: estimatedPrice || 0,
           orderSummary,
-          distanceInfo: distanceData && distanceData.success ? {
-            distance: distanceData.distanceText,
-            duration: distanceData.durationText
-          } : null
+          distanceInfo: null
         });
         
         if (emailResult.success) {
@@ -1127,12 +1100,7 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
       // Return response with distance data included
       const response = {
         ...data[0],
-        distanceCalculation: distanceData && distanceData.success ? {
-          success: true,
-          distance: distanceData.distanceText,
-          duration: distanceData.durationText,
-          provider: distanceData.provider
-        } : null
+        distanceCalculation: null
       };
 
       res.status(201).json(response);
@@ -1167,10 +1135,10 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
         disassemblyCost,
         distanceCost,
         extraHelperCost,
-        firstLocation,
-        secondLocation,
-        firstLocationCoords,
-        secondLocationCoords,
+        firstlocation,
+        secondlocation,
+        firstlocation_coords,
+        secondlocation_coords,
         orderSummary,
         distanceKm
     } = payload;
@@ -1233,6 +1201,7 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
       }
     }
 
+    console.log('📦 House first and second location Request - Full Body:', firstlocation, secondlocation);
     // Prepare data for database insertion
     const insertData = {
       email: contactInfo.email,
@@ -1255,10 +1224,10 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
       disassemblycost: disassemblyCost ? parseFloat(disassemblyCost) : null,
       distancecost: distanceCost ? parseFloat(distanceCost) : null,
       extrahelpercost: extraHelperCost ? parseFloat(extraHelperCost) : null,
-      firstlocation: firstLocation || null,
-      secondlocation: secondLocation || null,
-      firstlocation_coords: firstLocationCoords || null,
-      secondlocation_coords: secondLocationCoords || null,
+      firstlocation: firstlocation || null,
+      secondlocation: secondlocation || null,
+      firstlocation_coords: firstlocation_coords || null,
+      secondlocation_coords: secondlocation_coords || null,
       calculated_distance_km: distanceKm,
       photo_urls: photoUrls
     };
@@ -1287,8 +1256,8 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
         customerFirstName: contactInfo.firstName,
         customerLastName: contactInfo.lastName,
         serviceType: 'house-moving',
-        pickupLocation: firstLocation,
-        dropoffLocation: secondLocation,
+        pickupLocation: firstlocation,
+        dropoffLocation: secondlocation,
         selectedDateRange,
         isDateFlexible,
         estimatedPrice: estimatedPrice || 0,
@@ -1916,33 +1885,7 @@ app.post('/api/special-requests', (req, res, next) => {
   const isDateFlexible = fields.isDateFlexible || false;
 
   try {
-    // Calculate distance if coordinates are provided
-    let distanceData = null;
-    if (pickupLocationCoords && dropoffLocationCoords) {
-      console.log('🛣️ Calculating distance for special request...');
-      console.log('📍 From:', pickupLocationCoords, 'To:', dropoffLocationCoords);
-      
-      try {
-        distanceData = await calculateDistanceBetweenLocations(pickupLocationCoords, dropoffLocationCoords);
-        
-        if (distanceData.success) {
-          console.log('✅ Distance calculated successfully:', {
-            distance: `${distanceData.distanceKm} km`,
-            duration: distanceData.durationText,
-            provider: distanceData.provider
-          });
-        } else {
-          console.log('⚠️ Distance calculation failed:', distanceData.error);
-          // Continue with request even if distance calculation fails
-        }
-      } catch (distanceError) {
-        console.error('❌ Distance calculation error:', distanceError);
-        // Continue with request even if distance calculation fails
-      }
-    } else {
-      console.log('📍 No coordinates provided, skipping distance calculation');
-    }
-
+    
     // Prepare data for database insertion
     const insertData = {
       selected_services: selectedServices,
@@ -1957,14 +1900,6 @@ app.post('/api/special-requests', (req, res, next) => {
       is_date_flexible: Boolean(isDateFlexible),
       created_at: new Date().toISOString()
     };
-
-    // Add distance data if available
-    if (distanceData && distanceData.success) {
-      insertData.calculated_distance_km = distanceData.distanceKm;
-      insertData.calculated_duration_seconds = distanceData.duration;
-      insertData.calculated_duration_text = distanceData.durationText;
-      insertData.distance_provider = distanceData.provider;
-    }
 
     // Process photo uploads if any
     let photoUrls = [];
@@ -2156,12 +2091,7 @@ app.post('/api/special-requests', (req, res, next) => {
     const response = {
       message: 'Special request saved successfully.',
       data: data[0],
-      distanceCalculation: distanceData && distanceData.success ? {
-        success: true,
-        distance: distanceData.distanceText,
-        duration: distanceData.durationText,
-        provider: distanceData.provider
-      } : null
+      distanceCalculation: null
     };
 
     res.status(201).json(response);
@@ -5228,16 +5158,6 @@ app.post('/api/item-donation-requests', (req, res, next) => {
       return res.status(400).json({ error: 'At least one donation item is required' });
     }
 
-    // Calculate distance if coordinates are provided
-    let distanceData = null;
-    if (pickupLocationCoords && donationLocationCoords) {
-      try {
-        distanceData = await calculateDistanceBetweenLocations(pickupLocationCoords, donationLocationCoords);
-      } catch (distanceError) {
-        // Continue with request even if distance calculation fails
-      }
-    }
-
     // Process photo uploads if any
     console.log('🎁 Processing photos:', req.files ? req.files.length : 0, 'files');
     if (req.files && req.files.length > 0) {
@@ -5425,12 +5345,7 @@ app.post('/api/item-donation-requests', (req, res, next) => {
       created_at: new Date().toISOString()
     };
     console.log('🎁 Insert data photo_urls field:', insertData.photo_urls);
-    if (distanceData && distanceData.success) {
-      insertData.calculated_distance_km = distanceData.distanceKm;
-      insertData.calculated_duration_seconds = distanceData.duration;
-      insertData.calculated_duration_text = distanceData.durationText;
-      insertData.distance_provider = distanceData.provider;
-    }
+
     const { data, error } = await supabase
       .from('item_donations')
       .insert([insertData])
@@ -5441,12 +5356,7 @@ app.post('/api/item-donation-requests', (req, res, next) => {
     res.status(201).json({
       message: 'Item donation request saved successfully.',
       data: data[0],
-      distanceCalculation: distanceData && distanceData.success ? {
-        success: true,
-        distance: distanceData.distanceText,
-        duration: distanceData.durationText,
-        provider: distanceData.provider
-      } : null
+      distanceCalculation: distanceData
     });
   } catch (err) {
     res.status(500).json({ error: 'Internal Server Error', details: err.message });
