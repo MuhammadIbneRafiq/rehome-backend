@@ -5641,19 +5641,10 @@ app.delete('/api/admin/marketplace-item-details/:id', authenticateAdmin, async (
     const { id } = req.params;
     console.log('📋 Admin deleting marketplace item detail:', id);
     
-    const { data, error } = await supabaseClient
+    const { data } = await supabaseClient
       .from('marketplace_item_details')
       .delete()
       .eq('id', id);
-
-    if (error) {
-      console.error('❌ Error deleting marketplace item detail:', error);
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Failed to delete marketplace item detail',
-        details: error.message 
-      });
-    }
 
     if (!data || data.length === 0) {
       return res.status(404).json({ 
