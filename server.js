@@ -1872,22 +1872,93 @@ app.post('/api/special-requests', (req, res, next) => {
     }
   });
 
-  // Map frontend fields to backend expected format
-  const selectedServices = fields.services ? [fields.services] : [selectedService];
-  const message = fields.itemDescription || fields.itemList || fields.message || '';
-  const contactInfo = { phone, email };
-  const pickupLocation = fields.pickupAddress || fields.address || '';
-  const dropoffLocation = fields.dropoffAddress || fields.dropoffPreference || '';
-  const pickupLocationCoords = fields.pickupLocationCoords || null;
-  const dropoffLocationCoords = fields.dropoffLocationCoords || null;
-  const requestType = selectedService;
-  const preferredDate = fields.removalDate || fields.preferredDate || null;
-  const isDateFlexible = fields.isDateFlexible || false;
+  // Declare insertData variable
+  let insertData = {};
 
-  try {
+  // Handle fullInternationalMove service type specifically
+  if (selectedService === 'fullInternationalMove') {
+    console.log('🌍 Processing Full/International Move request');
     
+    // Extract all the specific fields for international move
+    const pickupAddress = fields.pickupAddress || '';
+    const dropoffAddress = fields.dropoffAddress || '';
+    const pickupFloor = fields.pickupFloor || 0;
+    const dropoffFloor = fields.dropoffFloor || 0;
+    const pickupElevator = fields.pickupElevator || 'no';
+    const dropoffElevator = fields.dropoffElevator || 'no';
+    const itemDescription = fields.itemDescription || '';
+    const moveDateType = fields.moveDateType || '';
+    const specificDate = fields.specificDate || null;
+    const flexibleStartDate = fields.flexibleStartDate || null;
+    const flexibleEndDate = fields.flexibleEndDate || null;
+    const rehomeChooseDate = fields.rehomeChooseDate === 'true';
+    
+    // Parse selected services
+    let selectedServices = [];
+    if (fields.selectedServices) {
+      try {
+        selectedServices = JSON.parse(fields.selectedServices);
+      } catch (e) {
+        console.error('Error parsing selectedServices:', e);
+        selectedServices = [];
+      }
+    }
+
+    // Determine the preferred date based on move date type
+    let preferredDate = null;
+    let isDateFlexible = false;
+    
+    if (moveDateType === 'specific' && specificDate) {
+      preferredDate = specificDate;
+      isDateFlexible = false;
+    } else if (moveDateType === 'flexible' && flexibleStartDate && flexibleEndDate) {
+      preferredDate = flexibleStartDate; // Use start date as preferred
+      isDateFlexible = true;
+    } else if (moveDateType === 'rehomeChoose' || rehomeChooseDate) {
+      preferredDate = null;
+      isDateFlexible = true;
+    }
+
     // Prepare data for database insertion
-    const insertData = {
+    insertData = {
+      selected_services: ['fullInternationalMove', ...selectedServices],
+      message: itemDescription,
+      contact_info: { phone, email },
+      pickup_location: pickupAddress,
+      dropoff_location: dropoffAddress,
+      pickup_location_coords: null, // Will be added if coordinates are available
+      dropoff_location_coords: null, // Will be added if coordinates are available
+      request_type: 'fullInternationalMove',
+      preferred_date: preferredDate,
+      is_date_flexible: isDateFlexible,
+      // Additional fields specific to international move
+      pickup_floor: parseInt(pickupFloor) || 0,
+      dropoff_floor: parseInt(dropoffFloor) || 0,
+      pickup_elevator: pickupElevator,
+      dropoff_elevator: dropoffElevator,
+      move_date_type: moveDateType,
+      specific_date: specificDate,
+      flexible_start_date: flexibleStartDate,
+      flexible_end_date: flexibleEndDate,
+      rehome_choose_date: rehomeChooseDate,
+      selected_services_details: selectedServices,
+      created_at: new Date().toISOString()
+    };
+  } else {
+    // Handle other service types (storage, junkRemoval) as before
+    const selectedServices = fields.services ? [fields.services] : [selectedService];
+    const message = fields.itemDescription || fields.itemList || fields.message || '';
+    const contactInfo = { phone, email };
+    const pickupLocation = fields.pickupAddress || fields.address || '';
+    const dropoffLocation = fields.dropoffAddress || fields.dropoffPreference || '';
+    const pickupLocationCoords = fields.pickupLocationCoords || null;
+    const dropoffLocationCoords = fields.dropoffLocationCoords || null;
+    const requestType = selectedService;
+    const preferredDate = fields.removalDate || fields.preferredDate || null;
+    const isDateFlexible = fields.isDateFlexible || false;
+
+    // Prepare data for database insertion
+    insertData = {
       selected_services: selectedServices,
       message: message,
       contact_info: contactInfo,
@@ -1900,7 +1971,9 @@ app.post('/api/special-requests', (req, res, next) => {
       is_date_flexible: Boolean(isDateFlexible),
       created_at: new Date().toISOString()
     };
+  }
 
+  try {
     // Process photo uploads if any
     let photoUrls = [];
     if (req.files && req.files.length > 0) {
@@ -5360,321 +5433,6 @@ app.post('/api/item-donation-requests', (req, res, next) => {
     });
   } catch (err) {
     res.status(500).json({ error: 'Internal Server Error', details: err.message });
-  }
-});
-
-// ====================================================
-// MARKETPLACE ITEM DETAILS API ENDPOINTS
-// ====================================================
-
-// Get all marketplace item details
-app.get('/api/marketplace-item-details', async (req, res) => {
-  try {
-    console.log('📋 Fetching marketplace item details...');
-    
-    const { data, error } = await supabaseClient
-      .from('marketplace_item_details')
-      .select('*')
-      .eq('is_active', true)
-      .order('category', { ascending: true })
-      .order('subcategory', { ascending: true });
-
-    if (error) {
-      console.error('❌ Error fetching marketplace item details:', error);
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Failed to fetch marketplace item details',
-        details: error.message 
-      });
-    }
-
-    console.log('✅ Marketplace item details fetched successfully:', data.length, 'items');
-    res.json({
-      success: true,
-      data: data || [],
-      meta: {
-        count: data?.length || 0,
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (err) {
-    console.error('❌ Error in marketplace item details endpoint:', err);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal Server Error', 
-      details: err.message 
-    });
-  }
-});
-
-// Admin endpoints for managing marketplace item details
-app.get('/api/admin/marketplace-item-details', authenticateAdmin, async (req, res) => {
-  try {
-    console.log('📋 Admin fetching marketplace item details...');
-    
-    const { data, error } = await supabaseClient
-      .from('marketplace_item_details')
-      .select('*')
-      .order('category', { ascending: true })
-      .order('subcategory', { ascending: true });
-
-    if (error) {
-      console.error('❌ Error fetching marketplace item details:', error);
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Failed to fetch marketplace item details',
-        details: error.message 
-      });
-    }
-
-    console.log('✅ Admin marketplace item details fetched successfully:', data.length, 'items');
-    res.json({
-      success: true,
-      data: data || [],
-      meta: {
-        count: data?.length || 0,
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (err) {
-    console.error('❌ Error in admin marketplace item details endpoint:', err);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal Server Error', 
-      details: err.message 
-    });
-  }
-});
-
-// Create new marketplace item detail
-app.post('/api/admin/marketplace-item-details', authenticateAdmin, async (req, res) => {
-  try {
-    const { category, subcategory, points } = req.body;
-    console.log('📋 Admin creating marketplace item detail:', { category, subcategory, points });
-    
-    if (!category || points === undefined) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Category and points are required' 
-      });
-    }
-
-    const { data, error } = await supabaseClient
-      .from('marketplace_item_details')
-      .insert([{
-        category,
-        subcategory: subcategory || null,
-        points: parseInt(points) || 1,
-        is_active: true
-      }])
-      .select();
-
-    if (error) {
-      console.error('❌ Error creating marketplace item detail:', error);
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Failed to create marketplace item detail',
-        details: error.message 
-      });
-    }
-
-    console.log('✅ Marketplace item detail created successfully:', data[0]);
-    res.status(201).json({
-      success: true,
-      data: data[0],
-      message: 'Marketplace item detail created successfully'
-    });
-  } catch (err) {
-    console.error('❌ Error in create marketplace item detail endpoint:', err);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal Server Error', 
-      details: err.message 
-    });
-  }
-});
-
-// Update marketplace item detail
-app.put('/api/admin/marketplace-item-details/:id', authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { category, subcategory, points, is_active } = req.body;
-    console.log('📋 Admin updating marketplace item detail:', { id, category, subcategory, points, is_active });
-    
-    const updateData = {};
-    if (category !== undefined) updateData.category = category;
-    if (subcategory !== undefined) updateData.subcategory = subcategory;
-    if (points !== undefined) updateData.points = parseInt(points);
-    if (is_active !== undefined) updateData.is_active = is_active;
-
-    const { data, error } = await supabaseClient
-      .from('marketplace_item_details')
-      .update(updateData)
-      .eq('id', id)
-      .select();
-
-    if (error) {
-      console.error('❌ Error updating marketplace item detail:', error);
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Failed to update marketplace item detail',
-        details: error.message 
-      });
-    }
-
-    if (!data || data.length === 0) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Marketplace item detail not found' 
-      });
-    }
-
-    console.log('✅ Marketplace item detail updated successfully:', data[0]);
-    res.json({
-      success: true,
-      data: data[0],
-      message: 'Marketplace item detail updated successfully'
-    });
-  } catch (err) {
-    console.error('❌ Error in update marketplace item detail endpoint:', err);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal Server Error', 
-      details: err.message 
-    });
-  }
-});
-
-// Delete marketplace item detail (soft delete)
-app.delete('/api/admin/marketplace-item-details/:id', authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log('📋 Admin deleting marketplace item detail:', id);
-    
-    // First check if the item exists
-    const { data: existingItem, error: checkError } = await supabaseClient
-      .from('marketplace_item_details')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (checkError || !existingItem) {
-      console.log('❌ Marketplace item detail not found:', id);
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Marketplace item detail not found' 
-      });
-    }
-
-    // Delete the item
-    const { error: deleteError } = await supabaseClient
-      .from('marketplace_item_details')
-      .delete()
-      .eq('id', id);
-
-    if (deleteError) {
-      console.error('❌ Error deleting marketplace item detail:', deleteError);
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Failed to delete marketplace item detail',
-        details: deleteError.message 
-      });
-    }
-
-    res.json({
-      success: true,
-      data: existingItem,
-      message: 'Marketplace item detail deleted successfully'
-    });
-  } catch (err) {
-    console.error('❌ Error in delete marketplace item detail endpoint:', err);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal Server Error', 
-      details: err.message 
-    });
-  }
-});
-
-// Get dynamic pricing multipliers based on marketplace item details
-app.get('/api/marketplace-pricing-multipliers', async (req, res) => {
-  try {
-    console.log('💰 Fetching marketplace pricing multipliers...');
-    
-    // Get all marketplace item details to calculate multipliers
-    const { data: itemDetails, error: itemError } = await supabaseClient
-      .from('marketplace_item_details')
-      .select('*')
-      .eq('is_active', true);
-
-    if (itemError) {
-      console.error('❌ Error fetching marketplace item details:', itemError);
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Failed to fetch marketplace item details',
-        details: itemError.message 
-      });
-    }
-
-    // Calculate dynamic multipliers based on points
-    const maxPoints = Math.max(...itemDetails.map(item => item.points));
-    const minPoints = Math.min(...itemDetails.map(item => item.points));
-    const avgPoints = itemDetails.reduce((sum, item) => sum + item.points, 0) / itemDetails.length;
-
-    // Define base costs and calculate multipliers
-    const baseCarryingCost = 3; // Base carrying cost
-    const baseAssemblyCost = 60; // Base assembly cost
-    
-    // Calculate multipliers based on points ranges
-    const multipliers = {
-      carrying: {
-        lowPoints: {
-          threshold: Math.floor(avgPoints), // Below average points
-          multiplier: 1.0, // Base multiplier
-          cost: baseCarryingCost
-        },
-        highPoints: {
-          threshold: Math.ceil(avgPoints), // Above average points
-          multiplier: Math.max(1.5, maxPoints / avgPoints), // Dynamic multiplier based on max points
-          cost: Math.round(baseCarryingCost * Math.max(1.5, maxPoints / avgPoints))
-        }
-      },
-      assembly: {
-        lowPoints: {
-          threshold: Math.floor(avgPoints), // Below average points
-          multiplier: 1.0, // Base multiplier
-          cost: baseAssemblyCost
-        },
-        highPoints: {
-          threshold: Math.ceil(avgPoints), // Above average points
-          multiplier: Math.max(1.5, maxPoints / avgPoints), // Dynamic multiplier based on max points
-          cost: Math.round(baseAssemblyCost * Math.max(1.5, maxPoints / avgPoints))
-        }
-      },
-      points: {
-        min: minPoints,
-        max: maxPoints,
-        average: Math.round(avgPoints * 10) / 10,
-        threshold: Math.ceil(avgPoints) // Threshold for high points category
-      }
-    };
-
-    console.log('✅ Marketplace pricing multipliers calculated successfully');
-    res.json({
-      success: true,
-      data: multipliers,
-      meta: {
-        itemCount: itemDetails.length,
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (err) {
-    console.error('❌ Error in marketplace pricing multipliers endpoint:', err);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal Server Error', 
-      details: err.message 
-    });
   }
 });
 
