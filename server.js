@@ -5429,7 +5429,7 @@ app.post('/api/item-donation-requests', (req, res, next) => {
     res.status(201).json({
       message: 'Item donation request saved successfully.',
       data: data[0],
-      distanceCalculation: distanceData
+      distanceCalculation: null
     });
   } catch (err) {
     res.status(500).json({ error: 'Internal Server Error', details: err.message });
