@@ -5453,6 +5453,232 @@ app.post('/api/item-donation-requests', (req, res, next) => {
   }
 });
 
+// ====================================================
+// MARKETPLACE ITEM DETAILS API ENDPOINTS
+// ====================================================
+
+// Get all marketplace item details
+app.get('/api/marketplace-item-details', async (req, res) => {
+  try {
+    console.log('📋 Fetching marketplace item details...');
+    
+    const { data, error } = await supabaseClient
+      .from('marketplace_item_details')
+      .select('*')
+      .eq('is_active', true)
+      .order('category', { ascending: true })
+      .order('subcategory', { ascending: true });
+
+    if (error) {
+      console.error('❌ Error fetching marketplace item details:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to fetch marketplace item details',
+        details: error.message 
+      });
+    }
+
+    console.log('✅ Marketplace item details fetched successfully:', data.length, 'items');
+    res.json({
+      success: true,
+      data: data || [],
+      meta: {
+        count: data?.length || 0,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('❌ Error in marketplace item details endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
+// Admin endpoints for managing marketplace item details
+app.get('/api/admin/marketplace-item-details', authenticateAdmin, async (req, res) => {
+  try {
+    console.log('📋 Admin fetching marketplace item details...');
+    
+    const { data, error } = await supabaseClient
+      .from('marketplace_item_details')
+      .select('*')
+      .order('category', { ascending: true })
+      .order('subcategory', { ascending: true });
+
+    if (error) {
+      console.error('❌ Error fetching marketplace item details:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to fetch marketplace item details',
+        details: error.message 
+      });
+    }
+
+    console.log('✅ Admin marketplace item details fetched successfully:', data.length, 'items');
+    res.json({
+      success: true,
+      data: data || [],
+      meta: {
+        count: data?.length || 0,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('❌ Error in admin marketplace item details endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
+// Create new marketplace item detail
+app.post('/api/admin/marketplace-item-details', authenticateAdmin, async (req, res) => {
+  try {
+    const { category, subcategory, points } = req.body;
+    console.log('📋 Admin creating marketplace item detail:', { category, subcategory, points });
+    
+    if (!category || points === undefined) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Category and points are required' 
+      });
+    }
+
+    const { data, error } = await supabaseClient
+      .from('marketplace_item_details')
+      .insert([{
+        category,
+        subcategory: subcategory || null,
+        points: parseInt(points) || 1,
+        is_active: true
+      }])
+      .select();
+
+    if (error) {
+      console.error('❌ Error creating marketplace item detail:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to create marketplace item detail',
+        details: error.message 
+      });
+    }
+
+    console.log('✅ Marketplace item detail created successfully:', data[0]);
+    res.status(201).json({
+      success: true,
+      data: data[0],
+      message: 'Marketplace item detail created successfully'
+    });
+  } catch (err) {
+    console.error('❌ Error in create marketplace item detail endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
+// Update marketplace item detail
+app.put('/api/admin/marketplace-item-details/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { category, subcategory, points, is_active } = req.body;
+    console.log('📋 Admin updating marketplace item detail:', { id, category, subcategory, points, is_active });
+    
+    const updateData = {};
+    if (category !== undefined) updateData.category = category;
+    if (subcategory !== undefined) updateData.subcategory = subcategory;
+    if (points !== undefined) updateData.points = parseInt(points);
+    if (is_active !== undefined) updateData.is_active = is_active;
+
+    const { data, error } = await supabaseClient
+      .from('marketplace_item_details')
+      .update(updateData)
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      console.error('❌ Error updating marketplace item detail:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to update marketplace item detail',
+        details: error.message 
+      });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Marketplace item detail not found' 
+      });
+    }
+
+    console.log('✅ Marketplace item detail updated successfully:', data[0]);
+    res.json({
+      success: true,
+      data: data[0],
+      message: 'Marketplace item detail updated successfully'
+    });
+  } catch (err) {
+    console.error('❌ Error in update marketplace item detail endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
+// Delete marketplace item detail (soft delete)
+app.delete('/api/admin/marketplace-item-details/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('📋 Admin deleting marketplace item detail:', id);
+    
+    const { data, error } = await supabaseClient
+      .from('marketplace_item_details')
+      .update({ is_active: false })
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      console.error('❌ Error deleting marketplace item detail:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to delete marketplace item detail',
+        details: error.message 
+      });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Marketplace item detail not found' 
+      });
+    }
+
+    console.log('✅ Marketplace item detail deleted successfully:', data[0]);
+    res.json({
+      success: true,
+      data: data[0],
+      message: 'Marketplace item detail deleted successfully'
+    });
+  } catch (err) {
+    console.error('❌ Error in delete marketplace item detail endpoint:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal Server Error', 
+      details: err.message 
+    });
+  }
+});
+
 export default app;
 
 // Start the server only when running this file directly (for local development)
