@@ -1,4 +1,3 @@
-// server.js - ReHome Pricing System Backend
 import dotenv from 'dotenv';
 dotenv.config();
 import Joi from "joi";
