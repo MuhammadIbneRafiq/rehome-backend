@@ -272,7 +272,7 @@ export const sendMovingRequestEmail = async (movingData) => {
             <div style="margin-bottom: 10px;">2️⃣ Contact – You will receive a final quote and proposal via email or WhatsApp.</div>
             <div style="margin-bottom: 10px;">3️⃣ Arrange – If the proposed date/time does not work for you, please contact us via WhatsApp or Email with a screenshot of the mail. We will work together to find a suitable date.</div>
             <div style="margin-bottom: 10px;">4️⃣ Confirmation – Once we agree on a date and time, we will send you a confirmation email with an invoice.</div>
-            <div style="margin-bottom: 10px;">5️⃣ Completion – We will carry out the service as scheduled. You can pay by card after the service was carried out or later by bank transfer.</div>
+            <div style="margin-bottom: 10px;">5️⃣ Completion – We will carry out the service as scheduled. You can pay by card after the service is carried out.</div>
           </div>
           
           <p>In the meantime, if you have any questions or need to provide additional information, please don't hesitate to contact us at <a href="mailto:info@rehomebv.com">info@rehomebv.com</a>.</p>
