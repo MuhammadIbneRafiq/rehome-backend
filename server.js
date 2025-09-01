@@ -614,33 +614,92 @@ app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-        return res.status(400).json({ error: "Invalid request" });
+        return res.status(400).json({ 
+            error: "Email and password are required",
+            userMessage: "Please provide both email and password to continue."
+        });
     }
 
-
     try {
+        console.log('🔐 Attempting login for:', email);
         const { data, error } = await supabaseClient.auth.signInWithPassword({
             email: email,
             password: password,
         });
 
         if (error) {
+            console.error("Supabase auth error:", error);
             throw error;
         }
 
         if(data.session && data.session.access_token){
+            console.log('✅ Login successful for:', email);
             res.json({ accessToken: data.session.access_token });
         } else {
-            res.status(500).json({error: "Login failed: no access token"}); // or a more specific message
+            console.error("❌ Login failed: no access token returned");
+            res.status(500).json({
+                error: "Login failed: no access token",
+                userMessage: "Authentication service error. Please try again."
+            });
         }
 
     } catch (error) {
         console.error("Login error:", error);
-        // Return appropriate status code based on error type
-        if (error.message && error.message.includes('Invalid login credentials')) {
-            return res.status(401).json({ error: error.message });
+        
+        // Handle specific Supabase authentication errors
+        if (error.message) {
+            // Invalid login credentials (wrong password or email)
+            if (error.message.includes('Invalid login credentials')) {
+                return res.status(401).json({ 
+                    error: error.message,
+                    userMessage: "Invalid email or password. Please check your credentials and try again.",
+                    errorType: "INVALID_CREDENTIALS"
+                });
+            }
+            
+            // User not found (email doesn't exist)
+            if (error.message.includes('User not found')) {
+                return res.status(401).json({ 
+                    error: error.message,
+                    userMessage: "No account found with this email address. Please check your email or create a new account.",
+                    errorType: "USER_NOT_FOUND"
+                });
+            }
+            
+            // Email not confirmed
+            if (error.message.includes('Email not confirmed')) {
+                return res.status(401).json({ 
+                    error: error.message,
+                    userMessage: "Please verify your email address before signing in. Check your inbox for a confirmation email.",
+                    errorType: "EMAIL_NOT_CONFIRMED"
+                });
+            }
+            
+            // Too many requests (rate limiting)
+            if (error.message.includes('Too many requests')) {
+                return res.status(429).json({ 
+                    error: error.message,
+                    userMessage: "Too many login attempts. Please wait a moment before trying again.",
+                    errorType: "RATE_LIMITED"
+                });
+            }
+            
+            // Account locked/disabled
+            if (error.message.includes('Account locked') || error.message.includes('disabled')) {
+                return res.status(403).json({ 
+                    error: error.message,
+                    userMessage: "Your account has been temporarily locked. Please contact support for assistance.",
+                    errorType: "ACCOUNT_LOCKED"
+                });
+            }
         }
-        return res.status(500).json({ error: error.message || "Internal server error" });
+        
+        // Generic server error
+        return res.status(500).json({ 
+            error: error.message || "Internal server error",
+            userMessage: "An unexpected error occurred. Please try again later.",
+            errorType: "SERVER_ERROR"
+        });
     }
 });
 
