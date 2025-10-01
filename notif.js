@@ -225,7 +225,7 @@ export const sendMovingRequestEmail = async (movingData) => {
             ${orderSummary.additionalServices.assembly > 0 ? `<p style="margin: 5px 0; color: #666;">Assembly & Disassembly: €${orderSummary.additionalServices.assembly.toFixed(2)}</p>` : ''}
             ${orderSummary.additionalServices.extraHelper > 0 ? `<p style="margin: 5px 0; color: #666;">Extra Helper: €${orderSummary.additionalServices.extraHelper.toFixed(2)}</p>` : ''}
             ${orderSummary.additionalServices.carrying > 0 ? `<p style="margin: 5px 0; color: #666;">Floor Carrying Cost: €${orderSummary.additionalServices.carrying.toFixed(2)}</p>` : ''}
-            ${orderSummary.additionalServices.studentDiscount > 0 ? `<p style="margin: 5px 0; color: #28a745;">Student Discount (10%): -€${orderSummary.additionalServices.studentDiscount.toFixed(2)}</p>` : ''}
+            ${orderSummary.additionalServices.studentDiscount > 0 ? `<p style="margin: 5px 0; color: #28a745;">Student Discount (8.85%): -€${orderSummary.additionalServices.studentDiscount.toFixed(2)}</p>` : ''}
           </div>
           
           <!-- Contact Information -->
