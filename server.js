@@ -3234,6 +3234,86 @@ app.post("/api/calculate-pricing", async (req, res) => {
     }
 });
 
+// ==================== PRICING: ASSEMBLY/DISASSEMBLY ENDPOINT ====================
+// Calculates assembly and disassembly costs based on provided item selections
+// Body: { itemQuantities: { [itemId]: number }, assemblyItems?: { [itemId]: boolean }, disassemblyItems?: { [itemId]: boolean } }
+app.post('/api/calculate-assembly', async (req, res) => {
+    try {
+        const { itemQuantities = {}, assemblyItems = {}, disassemblyItems = {} } = req.body || {};
+
+        // Load item id->name mapping; fallback to id
+        let furnitureMap = {};
+        try {
+            const { data: furnitureRows } = await supabase
+                .from('furniture_items')
+                .select('id, name');
+            if (Array.isArray(furnitureRows)) {
+                furnitureRows.forEach((row) => { furnitureMap[row.id] = row.name || row.id; });
+            }
+        } catch (e) {
+            // ignore
+        }
+
+        const resolveName = (itemId) => furnitureMap[itemId] || itemId;
+
+        // Fixed assembly unit costs by item name
+        const getAssemblyUnit = (itemName) => {
+            switch (itemName) {
+                case '3-Doors Closet':
+                case '3-Door Wardrobe':
+                    return 35;
+                case '2-Doors Closet':
+                case '2-Door Wardrobe':
+                    return 30;
+                case '1-Person Bed':
+                case 'Single Bed':
+                    return 20;
+                case '2-Person Bed':
+                case 'Double Bed':
+                    return 30;
+                default:
+                    return 0;
+            }
+        };
+
+        let totalCost = 0;
+        const itemBreakdown = [];
+
+        // Assembly
+        for (const [itemId, needsAssembly] of Object.entries(assemblyItems)) {
+            const quantity = itemQuantities[itemId] || 0;
+            if (!needsAssembly || quantity <= 0) continue;
+            const name = resolveName(itemId);
+            const unit = getAssemblyUnit(name);
+            const cost = unit * quantity;
+            if (cost > 0) {
+                totalCost += cost;
+                itemBreakdown.push({ itemId, type: 'assembly', unitCost: unit, quantity, cost });
+            }
+        }
+
+        // Disassembly: same mapping with slight reduction factor
+        const DISASSEMBLY_FACTOR = 0.8;
+        for (const [itemId, needsDisassembly] of Object.entries(disassemblyItems)) {
+            const quantity = itemQuantities[itemId] || 0;
+            if (!needsDisassembly || quantity <= 0) continue;
+            const name = resolveName(itemId);
+            const baseUnit = getAssemblyUnit(name);
+            const unit = Math.round(baseUnit * DISASSEMBLY_FACTOR);
+            const cost = unit * quantity;
+            if (cost > 0) {
+                totalCost += cost;
+                itemBreakdown.push({ itemId, type: 'disassembly', unitCost: unit, quantity, cost });
+            }
+        }
+
+        return res.json({ success: true, data: { totalCost, itemBreakdown } });
+    } catch (error) {
+        console.error('Error in /api/calculate-assembly:', error);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
 // Helper function to check city schedule status (eliminates race conditions)
 async function checkCityScheduleStatus(city, date) {
     try {
