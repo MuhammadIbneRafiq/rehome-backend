@@ -970,6 +970,7 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
       const payload = JSON.parse(req.body.data);
       
       const {
+        order_number,
         pickupType,
         furnitureItems,
         customItem,
@@ -1143,6 +1144,7 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
           isDateFlexible,
           estimatedPrice: estimatedPrice || 0,
           orderSummary,
+          order_number: order_number,
           distanceInfo: null
         });
         
@@ -1178,6 +1180,7 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
     const payload = JSON.parse(req.body.data);
     
     const {
+        order_number,
         pickupType,
         furnitureItems,
         customItem,
@@ -1320,6 +1323,7 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
         isDateFlexible,
         estimatedPrice: estimatedPrice || 0,
         orderSummary,
+        order_number: order_number,
         distanceInfo
       });
       
