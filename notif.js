@@ -132,7 +132,7 @@ export const sendReHomeOrderEmail = async (orderData) => {
           
           <p>If you have any questions about your order, please contact us:</p>
           <ul style="list-style-type: none; padding-left: 0;">
-            <li><strong>WhatsApp:</strong> <a href="https://wa.me/31645839273" style="color: #ff6b35;">+31 645 839 273</a></li>
+            <li><strong>WhatsApp:</strong> <a href="https://wa.me/31612265704" style="color: #ff6b35;">+31 612 265 704</a></li>
             <li><strong>Email:</strong> <a href="mailto:info@rehomebv.com" style="color: #ff6b35;">info@rehomebv.com</a></li>
           </ul>
           <p>We look forward to assisting you!</p>
@@ -288,7 +288,7 @@ export const sendMovingRequestEmail = async (movingData) => {
           
           <p>In the meantime, if you have any questions or need to provide additional information, please don't hesitate to contact us at <a href="mailto:info@rehomebv.com">info@rehomebv.com</a>.</p>
           <ul style="list-style-type: none; padding-left: 0;">
-            <li><strong>WhatsApp:</strong> <a href="https://wa.me/31645839273" style="color: #ff6b35;">+31 645 839 273</a></li>
+            <li><strong>WhatsApp:</strong> <a href="https://wa.me/31612265704" style="color: #ff6b35;">+31 612 265 704</a></li>
             <li><strong>Email:</strong> <a href="mailto:info@rehomebv.com" style="color: #ff6b35;">info@rehomebv.com</a></li>
           </ul>
 
