@@ -6,7 +6,7 @@ const router = express.Router();
 
 // List of admin email addresses
 const ADMIN_EMAILS = [
-  'muhammadibnerafiq123@gmail.com',
+  'muhammadibnerafiq@gmail.com',
   'testnewuser12345@gmail.com',
   'egzmanagement@gmail.com',
   'samuel.stroehle8@gmail.com',
