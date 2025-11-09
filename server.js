@@ -178,17 +178,9 @@ const furnitureItemSchema = Joi.object({
 
 const cityBaseChargeSchema = Joi.object({
     cityName: Joi.string().required(),
-    normal: Joi.number().required(),
-    cityDay: Joi.number().required(),
-    dayOfWeek: Joi.string().valid('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday').required()
+    normal: Joi.number().required()
 });
 
-const cityDayDataSchema = Joi.object({
-    cityName: Joi.string().required(),
-    days: Joi.array().items(Joi.string()).required()
-});
-
-// Pricing calculation validation schema
 const pricingCalculationSchema = Joi.object({
     serviceType: Joi.string().required(),
     pickupLocation: Joi.string().required(),
@@ -1627,7 +1619,7 @@ app.post('/api/upload', (req, res, next) => {
                           maxHeight = Math.max(600, maxHeight - 150);
                           
                       } catch (compressionError) {
-                          console.error(`❌ Compression attempt ${attempts} failed:`, compressionError.message);
+                          console.error(`🔄 Compression attempt ${attempts} failed:`, compressionError.message);
                           break;
                       }
                   }
@@ -2938,8 +2930,8 @@ app.post("/api/city-base-charges", authenticateAdmin, auditLog, async (req, res)
             return res.status(400).json({ success: false, error: validationError.details[0].message });
         }
 
-        const { cityName, normal, cityDay, dayOfWeek } = req.body;
-        const insertData = { city_name: cityName, normal, city_day: cityDay, day_of_week: dayOfWeek };
+        const { cityName, normal } = req.body;
+        const insertData = { city_name: cityName, normal };
 
         const { data, error } = await supabaseClient
             .from('city_base_charges')
@@ -2961,15 +2953,10 @@ app.post("/api/city-base-charges", authenticateAdmin, auditLog, async (req, res)
 // Update city base charge
 app.put("/api/city-base-charges/:cityName", authenticateAdmin, auditLog, async (req, res) => {
     try {
-        const { normal, cityDay, dayOfWeek } = req.body;
-        const updateData = {};
+        const { normal } = req.body;
         
-        if (normal !== undefined) updateData.normal = normal;
-        if (cityDay !== undefined) updateData.city_day = cityDay;
-        if (dayOfWeek !== undefined) updateData.day_of_week = dayOfWeek;
-
-        if (Object.keys(updateData).length === 0) {
-            return res.status(400).json({ success: false, error: "No valid fields to update" });
+        if (!normal) {
+            return res.status(400).json({ success: false, error: "Normal charge is required" });
         }
 
         // Get old values for audit
@@ -2983,7 +2970,7 @@ app.put("/api/city-base-charges/:cityName", authenticateAdmin, auditLog, async (
 
         const { data, error } = await supabaseClient
             .from('city_base_charges')
-            .update(updateData)
+            .update({ normal })
             .eq('city_name', req.params.cityName)
             .select()
             .single();
@@ -2995,91 +2982,6 @@ app.put("/api/city-base-charges/:cityName", authenticateAdmin, auditLog, async (
         res.json({ success: true, data });
     } catch (error) {
         console.error("Update city base charge error:", error);
-        res.status(500).json({ success: false, error: "Internal server error" });
-    }
-});
-
-// ==================== CITY DAY DATA ENDPOINTS ====================
-
-// Get all city day data
-app.get("/api/city-day-data", async (req, res) => {
-    try {
-        const { data, error } = await supabaseClient
-            .from('city_day_data')
-            .select('*')
-            .order('city_name');
-
-        if (error) {
-            return res.status(500).json({ success: false, ...handleSupabaseError(error) });
-        }
-
-        res.json({ success: true, data });
-    } catch (error) {
-        console.error("Get city day data error:", error);
-        res.status(500).json({ success: false, error: "Internal server error" });
-    }
-});
-
-// Create city day data
-app.post("/api/city-day-data", authenticateAdmin, auditLog, async (req, res) => {
-    try {
-        const { error: validationError } = cityDayDataSchema.validate(req.body);
-        if (validationError) {
-            return res.status(400).json({ success: false, error: validationError.details[0].message });
-        }
-
-        const { cityName, days } = req.body;
-        const insertData = { city_name: cityName, days };
-
-        const { data, error } = await supabaseClient
-            .from('city_day_data')
-            .insert(insertData)
-            .select()
-            .single();
-
-        if (error) {
-            return res.status(500).json({ success: false, ...handleSupabaseError(error) });
-        }
-
-        res.status(201).json({ success: true, data });
-    } catch (error) {
-        console.error("Create city day data error:", error);
-        res.status(500).json({ success: false, error: "Internal server error" });
-    }
-});
-
-// Update city day data
-app.put("/api/city-day-data/:cityName", authenticateAdmin, auditLog, async (req, res) => {
-    try {
-        const { days } = req.body;
-        
-        if (!Array.isArray(days)) {
-            return res.status(400).json({ success: false, error: "Days must be an array" });
-        }
-
-        // Get old values for audit
-        const { data: oldData } = await supabaseClient
-            .from('city_day_data')
-            .select('*')
-            .eq('city_name', req.params.cityName)
-            .single();
-        
-        req.oldValues = oldData;
-
-        const { data, error } = await supabaseClient
-            .from('city_day_data')
-            .update({ days })
-            .eq('city_name', req.params.cityName)
-            .select()
-            .single();
-
-        if (error) {
-            return res.status(500).json({ success: false, ...handleSupabaseError(error) });
-        }
-
-        res.json({ success: true, data });
-    } catch (error) {
-        console.error("Update city day data error:", error);
         res.status(500).json({ success: false, error: "Internal server error" });
     }
 });
@@ -3196,12 +3098,6 @@ app.post("/api/calculate-pricing", async (req, res) => {
 
         const cityCharge = cityCharges[0];
 
-        // Get city day data
-        const { data: cityDayData, error: dayError } = await supabaseClient
-            .from('city_day_data')
-            .select('*')
-            .eq('city_name', pickupLocation);
-
         // Get furniture items and calculate base cost
         const { data: furnitureItems, error: furnitureError } = await supabaseClient
             .from('furniture_items')
@@ -3209,6 +3105,23 @@ app.post("/api/calculate-pricing", async (req, res) => {
 
         if (furnitureError) {
             return res.status(500).json({ success: false, error: "Error fetching furniture data" });
+        }
+
+        // Determine if city is scheduled on the selected date
+        let isCityScheduled = false;
+        if (selectedDate && pickupLocation) {
+            const { data: scheduleRow, error: scheduleError } = await supabaseClient
+                .from('city_schedules')
+                .select('id')
+                .eq('city', pickupLocation)
+                .eq('date', selectedDate)
+                .maybeSingle();
+
+            if (scheduleError) {
+                console.error('Error fetching city_schedules for pricing:', scheduleError);
+            }
+
+            isCityScheduled = Boolean(scheduleRow);
         }
 
         // Calculate pricing breakdown
@@ -3230,7 +3143,7 @@ app.post("/api/calculate-pricing", async (req, res) => {
             isEarlyBooking,
             config,
             cityCharge,
-            cityDayData: cityDayData?.[0] || null,
+            isCityScheduled,
             furnitureItems
         });
 
@@ -3240,333 +3153,6 @@ app.post("/api/calculate-pricing", async (req, res) => {
         res.status(500).json({ success: false, error: "Internal server error" });
     }
 });
-
-// ==================== PRICING: ASSEMBLY/DISASSEMBLY ENDPOINT ====================
-// Calculates assembly and disassembly costs based on provided item selections
-// Body: { itemQuantities: { [itemId]: number }, assemblyItems?: { [itemId]: boolean }, disassemblyItems?: { [itemId]: boolean } }
-app.post('/api/calculate-assembly', async (req, res) => {
-    try {
-        const { itemQuantities = {}, assemblyItems = {}, disassemblyItems = {} } = req.body || {};
-
-        // Load item id->name mapping; fallback to id
-        let furnitureMap = {};
-        try {
-            const { data: furnitureRows } = await supabase
-                .from('furniture_items')
-                .select('id, name');
-            if (Array.isArray(furnitureRows)) {
-                furnitureRows.forEach((row) => { furnitureMap[row.id] = row.name || row.id; });
-            }
-        } catch (e) {
-            // ignore
-        }
-
-        const resolveName = (itemId) => furnitureMap[itemId] || itemId;
-
-        // Fixed assembly unit costs by item name
-        const getAssemblyUnit = (itemName) => {
-            switch (itemName) {
-                case '3-Doors Closet':
-                case '3-Door Wardrobe':
-                    return 35;
-                case '2-Doors Closet':
-                case '2-Door Wardrobe':
-                    return 30;
-                case '1-Person Bed':
-                case 'Single Bed':
-                    return 20;
-                case '2-Person Bed':
-                case 'Double Bed':
-                    return 30;
-                default:
-                    return 0;
-            }
-        };
-
-        let totalCost = 0;
-        const itemBreakdown = [];
-
-        // Assembly
-        for (const [itemId, needsAssembly] of Object.entries(assemblyItems)) {
-            const quantity = itemQuantities[itemId] || 0;
-            if (!needsAssembly || quantity <= 0) continue;
-            const name = resolveName(itemId);
-            const unit = getAssemblyUnit(name);
-            const cost = unit * quantity;
-            if (cost > 0) {
-                totalCost += cost;
-                itemBreakdown.push({ itemId, type: 'assembly', unitCost: unit, quantity, cost });
-            }
-        }
-
-        // Disassembly: same mapping with slight reduction factor
-        const DISASSEMBLY_FACTOR = 0.8;
-        for (const [itemId, needsDisassembly] of Object.entries(disassemblyItems)) {
-            const quantity = itemQuantities[itemId] || 0;
-            if (!needsDisassembly || quantity <= 0) continue;
-            const name = resolveName(itemId);
-            const baseUnit = getAssemblyUnit(name);
-            const unit = Math.round(baseUnit * DISASSEMBLY_FACTOR);
-            const cost = unit * quantity;
-            if (cost > 0) {
-                totalCost += cost;
-                itemBreakdown.push({ itemId, type: 'disassembly', unitCost: unit, quantity, cost });
-            }
-        }
-
-        return res.json({ success: true, data: { totalCost, itemBreakdown } });
-    } catch (error) {
-        console.error('Error in /api/calculate-assembly:', error);
-        return res.status(500).json({ success: false, error: 'Internal server error' });
-    }
-});
-
-// Helper function to check city schedule status (eliminates race conditions)
-async function checkCityScheduleStatus(city, date) {
-    try {
-        // Format date as YYYY-MM-DD
-        const dateStr = new Date(date).toISOString().split('T')[0];
-        
-        // Single database call to check if city is scheduled on this date
-        const { data, error } = await supabase
-            .from('city_schedules')
-            .select('id')
-            .eq('city', city)
-            .eq('date', dateStr)
-            .limit(1)
-            .maybeSingle();
-            
-        if (error) {
-            console.error('[checkCityScheduleStatus] Error fetching city_schedules:', error);
-            return {
-                isScheduled: false,
-                isEmpty: true,
-                error: error.message
-            };
-        }
-        
-        const isScheduled = !!data;
-        return {
-            isScheduled,        // true if city has scheduled delivery on this date
-            isEmpty: !isScheduled, // true if calendar is empty (eligible for early booking discount)
-            error: null
-        };
-    } catch (error) {
-        console.error('[checkCityScheduleStatus] Unexpected error:', error);
-        return {
-            isScheduled: false,
-            isEmpty: true,
-            error: error.message
-        };
-    }
-}
-
-// API endpoint to check city schedule status
-app.get('/api/city-schedule-status', async (req, res) => {
-    try {
-        const { city, date } = req.query;
-        
-        if (!city || !date) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'City and date parameters are required' 
-            });
-        }
-        
-        const result = await checkCityScheduleStatus(city, date);
-        
-        if (result.error) {
-            return res.status(500).json({ 
-                success: false, 
-                error: result.error 
-            });
-        }
-        
-        res.json({ 
-            success: true, 
-            data: {
-                city,
-                date,
-                isScheduled: result.isScheduled,
-                isEmpty: result.isEmpty
-            }
-        });
-    } catch (error) {
-        console.error("City schedule status error:", error);
-        res.status(500).json({ success: false, error: "Internal server error" });
-    }
-});
-
-// API endpoint to check if city has availability within a date range
-app.get('/api/city-availability-range', async (req, res) => {
-    try {
-        const { city, startDate, endDate } = req.query;
-        
-        if (!city || !startDate || !endDate) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'City, startDate, and endDate parameters are required' 
-            });
-        }
-        
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        
-        if (start > end) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Start date must be before or equal to end date' 
-            });
-        }
-        
-        let hasAvailableDay = false;
-        const currentDate = new Date(start);
-        
-        // Check each day in the range
-        while (currentDate <= end) {
-            const dateStr = currentDate.toISOString().split('T')[0];
-            const result = await checkCityScheduleStatus(city, dateStr);
-            
-            // If any day is scheduled for this city, we have availability
-            if (result.isScheduled || result.isEmpty) {
-                hasAvailableDay = true;
-                break;
-            }
-            
-            // Move to next day
-            currentDate.setDate(currentDate.getDate() + 1);
-        }
-        
-        res.json({ 
-            success: true, 
-            data: {
-                city,
-                startDate,
-                endDate,
-                hasAvailableDay
-            }
-        });
-    } catch (error) {
-        console.error("City availability range error:", error);
-        res.status(500).json({ success: false, error: "Internal server error" });
-    }
-});
-
-// API endpoint to check if city has any available day within a date range
-app.get('/api/city-availability-range', async (req, res) => {
-    try {
-        const { city, startDate, endDate } = req.query;
-        
-        if (!city || !startDate || !endDate) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'City, startDate, and endDate parameters are required' 
-            });
-        }
-        
-        const result = await checkCityAvailabilityInRange(city, startDate, endDate);
-        
-        if (result.error) {
-            return res.status(500).json({ 
-                success: false, 
-                error: result.error 
-            });
-        }
-        
-        res.json({ 
-            success: true, 
-            data: {
-                city,
-                startDate,
-                endDate,
-                hasAvailableDay: result.hasAvailableDay
-            }
-        });
-    } catch (error) {
-        console.error("City availability range error:", error);
-        res.status(500).json({ success: false, error: "Internal server error" });
-    }
-});
-
-// API endpoint to check if all cities are empty on a specific date
-app.get('/api/check-all-cities-empty', async (req, res) => {
-    try {
-        const { date } = req.query;
-        
-        if (!date) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Date parameter is required' 
-            });
-        }
-        
-        // List of all supported cities
-        const allCities = ['Amsterdam', 'Rotterdam', 'Utrecht', 'Den Haag', 'Eindhoven', 'Tilburg', 'Groningen', 'Almere', 'Breda', 'Nijmegen', 'Enschede', 'Haarlem', 'Arnhem', 'Zaanstad', 'Amersfoort', 'Apeldoorn', 'Hoofddorp', 'Roosendaal', 'Dordrecht', 'Leiden', 'Haarlemmermeer', 'Zoetermeer', 'Zwolle', 'Maastricht', 'Leeuwarden', 'Alkmaar', 'Emmen', 'Venlo', 'Helmond', 'Delft'];
-        
-        let allEmpty = true;
-        
-        // Check each city to see if any has bookings or is scheduled
-        for (const city of allCities) {
-            const status = await checkCityScheduleStatus(city, date);
-            if (status.isScheduled || !status.isEmpty) {
-                allEmpty = false;
-                break;
-            }
-        }
-        
-        res.json({ 
-            success: true, 
-            data: {
-                date,
-                isEmpty: allEmpty
-            }
-        });
-    } catch (error) {
-        console.error("Check all cities empty error:", error);
-        res.status(500).json({ success: false, error: "Internal server error" });
-    }
-});
-
-// Helper function to check if city has any available day within a date range
-async function checkCityAvailabilityInRange(city, startDate, endDate) {
-    try {
-        // Format dates as YYYY-MM-DD
-        const startDateStr = new Date(startDate).toISOString().split('T')[0];
-        const endDateStr = new Date(endDate).toISOString().split('T')[0];
-        
-        // Check if city is scheduled on any date within the range
-        const { data, error } = await supabase
-            .from('city_schedules')
-            .select('date')
-            .eq('city', city)
-            .gte('date', startDateStr)
-            .lte('date', endDateStr)
-            .limit(1)
-            .maybeSingle();
-            
-        if (error) {
-            console.error('[checkCityAvailabilityInRange] Error fetching city_schedules:', error);
-            return {
-                hasAvailableDay: false,
-                error: error.message
-            };
-        }
-        
-        // If we found any scheduled date in the range, the city has an available day
-        const hasAvailableDay = !!data;
-        
-        return {
-            hasAvailableDay,
-            error: null
-        };
-    } catch (error) {
-        console.error('[checkCityAvailabilityInRange] Unexpected error:', error);
-        return {
-            hasAvailableDay: false,
-            error: error.message
-        };
-    }
-}
 
 // Helper function for pricing calculation
 function calculatePricingBreakdown(params) {
@@ -3585,7 +3171,7 @@ function calculatePricingBreakdown(params) {
         isEarlyBooking,
         config,
         cityCharge,
-        cityDayData,
+        isCityScheduled,
         furnitureItems
     } = params;
 
@@ -3614,11 +3200,12 @@ function calculatePricingBreakdown(params) {
 
     // Determine if it's a city day
     const date = new Date(selectedDate);
-    const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
-    const isCityDay = cityDayData?.days?.includes(dayName) || false;
+    const isCityDay = isCityScheduled;
 
     // Base charge
-    const baseCharge = isCityDay ? cityCharge.city_day : cityCharge.normal;
+    const baseCharge = isCityDay && cityCharge.city_day != null
+        ? cityCharge.city_day
+        : cityCharge.normal;
 
     // Calculate point-based cost
     const pointBasedCost = totalPoints * config.baseMultipliers.houseMovingItemMultiplier * (baseCharge / 10); // Normalize base charge
@@ -5069,12 +4656,6 @@ app.get('/api/locations/cities', async (req, res) => {
       // Pricing cities
       supabaseClient
         .from('city_base_charges')
-        .select('city_name')
-        .not('city_name', 'is', null),
-      
-      // City day data
-      supabaseClient
-        .from('city_day_data')
         .select('city_name')
         .not('city_name', 'is', null)
     ]);

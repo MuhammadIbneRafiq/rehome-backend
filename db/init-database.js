@@ -144,46 +144,6 @@ const initializeDatabase = async () => {
             console.log('✓ City base charges created');
         }
 
-        // Insert city day data (using day numbers: 1=Monday, 2=Tuesday, ..., 7=Sunday)
-        console.log('Creating city day data...');
-        const cityDays = [
-            { city_name: 'Amsterdam', days: [1] },
-            { city_name: 'Utrecht', days: [1] },
-            { city_name: 'Almere', days: [1] },
-            { city_name: 'Haarlem', days: [1] },
-            { city_name: 'Zaanstad', days: [1] },
-            { city_name: 'Amersfoort', days: [1] },
-            { city_name: 's-Hertogenbosch', days: [1] },
-            { city_name: 'Hoofddorp', days: [1] },
-            { city_name: 'Rotterdam', days: [2] },
-            { city_name: 'The Hague', days: [2] },
-            { city_name: 'Breda', days: [2] },
-            { city_name: 'Leiden', days: [2] },
-            { city_name: 'Dordrecht', days: [2] },
-            { city_name: 'Zoetermeer', days: [2] },
-            { city_name: 'Delft', days: [2] },
-            { city_name: 'Eindhoven', days: [3] },
-            { city_name: 'Maastricht', days: [3] },
-            { city_name: 'Tilburg', days: [4] },
-            { city_name: 'Groningen', days: [5] },
-            { city_name: 'Nijmegen', days: [6] },
-            { city_name: 'Enschede', days: [6] },
-            { city_name: 'Arnhem', days: [6] },
-            { city_name: 'Apeldoorn', days: [6] },
-            { city_name: 'Deventer', days: [6] },
-            { city_name: 'Zwolle', days: [7] }
-        ];
-
-        const { error: cityDaysError } = await supabaseClient
-            .from('city_day_data')
-            .insert(cityDays);
-        
-        if (cityDaysError) {
-            console.log('City day data might already exist:', cityDaysError.message);
-        } else {
-            console.log('✓ City day data created');
-        }
-
         // Create initial admin user
         console.log('Creating admin user...');
         const passwordHash = await bcrypt.hash('admin123', 10);
