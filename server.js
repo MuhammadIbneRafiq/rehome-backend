@@ -14,6 +14,7 @@ import { sendReHomeOrderEmail, sendMovingRequestEmail } from "./notif.js";
 import http from 'http'; // Import http module for server creation
 import { authenticateUser } from './middleware/auth.js';
 import * as imageProcessingService from './services/imageProcessingService.js';
+import { warmUpCache } from './services/cacheService.js';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 const app = express();
@@ -50,7 +51,7 @@ const upload = multer({
 
 // List of admin email addresses - keep in sync with other admin files
 const ADMIN_EMAILS = [
-  'muhammadibnerafiq123@gmail.com',
+  'muhammadibnerafiq@gmail.com',
   'testnewuser12345@gmail.com',
   'egzmanagement@gmail.com',
   'samuel.stroehle8@gmail.com',
@@ -254,6 +255,7 @@ import adminCityPricesRoutes from './api/admin/city-prices.js';
 import adminPricingConfigsRoutes from './api/admin/pricing-configs.js';
 import adminPricingMultipliersRoutes from './api/admin/pricing-multipliers.js';
 import rehomeOrdersRoutes from './api/rehome-orders.js';
+import pricingRoutes from './api/pricing.js';
 
 // --------------------  Application Routes --------------------
 
@@ -269,6 +271,7 @@ app.use('/api/admin/city-prices', adminCityPricesRoutes);
 app.use('/api/admin/pricing-configs', adminPricingConfigsRoutes);
 app.use('/api/admin/pricing-multipliers', adminPricingMultipliersRoutes);
 app.use('/api/rehome-orders', rehomeOrdersRoutes);
+app.use('/api/pricing', pricingRoutes);
 
 // --------------------  Authentication Routes --------------------
 // Auth
@@ -6193,8 +6196,17 @@ if (process.env.NODE_ENV !== 'production') {
     server.headersTimeout = 310000; // Slightly longer than keepAliveTimeout
     server.requestTimeout = 300000; // 5 minutes
     
-    server.listen(port, () => {
+    server.listen(port, async () => {
         console.log(`Server listening on port ${port}`);
         console.log(`Server timeouts configured: keepAlive=5min, headers=5.17min, request=5min`);
+        
+        // Warm up cache on server start
+        try {
+            console.log('🔥 Warming up cache...');
+            await warmUpCache();
+            console.log('✅ Cache warmed up successfully');
+        } catch (error) {
+            console.error('❌ Failed to warm up cache:', error);
+        }
     });
 }
