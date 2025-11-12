@@ -220,22 +220,52 @@ export const sendMovingRequestEmail = async (movingData) => {
             `).join('')}
           </div>
           
-          <!-- Additional Services -->
+          <!-- Price Breakdown -->
           <div style="margin-bottom: 20px;">
-            <h4 style="color: #ff6b35; margin-bottom: 10px;">Additional Services</h4>
-            ${orderSummary.additionalServices.assembly > 0 ? `<p style="margin: 5px 0; color: #666;">Assembly & Disassembly: €${orderSummary.additionalServices.assembly.toFixed(2)}</p>` : ''}
-            ${orderSummary.additionalServices.extraHelper > 0 ? `<p style="margin: 5px 0; color: #666;">Extra Helper: €${orderSummary.additionalServices.extraHelper.toFixed(2)}</p>` : ''}
-            ${orderSummary.additionalServices.carrying > 0 ? `<p style="margin: 5px 0; color: #666;">Floor Carrying Cost: €${orderSummary.additionalServices.carrying.toFixed(2)}</p>` : ''}
+            <h4 style="color: #ff6b35; margin-bottom: 10px;">Price Breakdown</h4>
+            <table style="width: 100%; border-collapse: collapse;">
+              ${orderSummary.basePrice ? `
+              <tr style="border-bottom: 1px solid #e0e0e0;">
+                <td style="padding: 8px 0; color: #666;">Base Price</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.basePrice.toFixed(2)}</td>
+              </tr>` : ''}
+              ${orderSummary.itemsCost ? `
+              <tr style="border-bottom: 1px solid #e0e0e0;">
+                <td style="padding: 8px 0; color: #666;">Items</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.itemsCost.toFixed(2)}</td>
+              </tr>` : ''}
+              ${orderSummary.distanceCost ? `
+              <tr style="border-bottom: 1px solid #e0e0e0;">
+                <td style="padding: 8px 0; color: #666;">Distance ${orderSummary.distanceKm ? `(${orderSummary.distanceKm.toFixed(2)} km)` : ''}</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.distanceCost.toFixed(2)}</td>
+              </tr>` : ''}
+              ${orderSummary.additionalServices.carrying > 0 ? `
+              <tr style="border-bottom: 1px solid #e0e0e0;">
+                <td style="padding: 8px 0; color: #666;">Carrying Service</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.additionalServices.carrying.toFixed(2)}</td>
+              </tr>` : ''}
+              ${orderSummary.additionalServices.assembly > 0 ? `
+              <tr style="border-bottom: 1px solid #e0e0e0;">
+                <td style="padding: 8px 0; color: #666;">Assembly & Disassembly</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.additionalServices.assembly.toFixed(2)}</td>
+              </tr>` : ''}
+              ${orderSummary.additionalServices.extraHelper > 0 ? `
+              <tr style="border-bottom: 1px solid #e0e0e0;">
+                <td style="padding: 8px 0; color: #666;">Extra Helper</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.additionalServices.extraHelper.toFixed(2)}</td>
+              </tr>` : ''}
+              ${orderSummary.additionalServices.studentDiscount > 0 ? `
+              <tr style="border-bottom: 1px solid #e0e0e0;">
+                <td style="padding: 8px 0; color: #28a745;">Student Discount (8.85%)</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #28a745;">-€${orderSummary.additionalServices.studentDiscount.toFixed(2)}</td>
+              </tr>` : ''}
+              ${orderSummary.additionalServices.earlyBookingDiscount > 0 ? `
+              <tr style="border-bottom: 1px solid #e0e0e0;">
+                <td style="padding: 8px 0; color: #28a745;">Early Booking Discount</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #28a745;">-€${orderSummary.additionalServices.earlyBookingDiscount.toFixed(2)}</td>
+              </tr>` : ''}
+            </table>
           </div>
-          
-          <!-- Discounts -->
-          ${(orderSummary.additionalServices.studentDiscount > 0 || orderSummary.additionalServices.earlyBookingDiscount > 0) ? `
-          <div style="margin-bottom: 20px;">
-            <h4 style="color: #ff6b35; margin-bottom: 10px;">Discounts</h4>
-            ${orderSummary.additionalServices.studentDiscount > 0 ? `<p style="margin: 5px 0; color: #28a745;">Student Discount (8.85%): -€${orderSummary.additionalServices.studentDiscount.toFixed(2)}</p>` : ''}
-            ${orderSummary.additionalServices.earlyBookingDiscount > 0 ? `<p style="margin: 5px 0; color: #28a745;">Early Booking Discount (8.85%): -€${orderSummary.additionalServices.earlyBookingDiscount.toFixed(2)}</p>` : ''}
-          </div>
-          ` : ''}
           
           <!-- Contact Information -->
           <div style="margin-bottom: 20px;">
