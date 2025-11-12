@@ -93,21 +93,44 @@ router.post('/', async (req, res) => {
       return res.status(500).json({ error: 'Failed to create order' });
     }
 
+    // Calculate per-item costs based on assistance options
+    const calculateItemCosts = (item) => {
+      let itemCarryingCost = 0;
+      let itemAssemblyCost = 0;
+      
+      // These are placeholder calculations - in reality you'd fetch item points from database
+      // For now, we'll distribute the total costs proportionally
+      const totalItems = items.length;
+      
+      if (item.assistance?.needsCarrying && totalItems > 0) {
+        itemCarryingCost = (carryingCost / totalItems) * (item.quantity || 1);
+      }
+      
+      if (item.assistance?.needsAssembly && totalItems > 0) {
+        itemAssemblyCost = (assemblyCost / totalItems) * (item.quantity || 1);
+      }
+      
+      return { itemCarryingCost, itemAssemblyCost };
+    };
+    
     // Insert order items
-    const orderItems = items.map(item => ({
-      order_id: order.id,
-      marketplace_item_id: item.id,
-      item_name: item.name,
-      item_category: item.category,
-      item_subcategory: item.subcategory,
-      item_price: item.price,
-      quantity: item.quantity,
-      image_url: item.image_url || item.image_urls || [],
-      needs_carrying: item.assistance?.needsCarrying || false,
-      needs_assembly: item.assistance?.needsAssembly || false,
-      item_carrying_cost: 0, // Will be calculated later if needed
-      item_assembly_cost: 0  // Will be calculated later if needed
-    }));
+    const orderItems = items.map(item => {
+      const { itemCarryingCost, itemAssemblyCost } = calculateItemCosts(item);
+      return {
+        order_id: order.id,
+        marketplace_item_id: item.id,
+        item_name: item.name,
+        item_category: item.category,
+        item_subcategory: item.subcategory,
+        item_price: item.price,
+        quantity: item.quantity,
+        image_url: item.image_url || item.image_urls || [],
+        needs_carrying: item.assistance?.needsCarrying || false,
+        needs_assembly: item.assistance?.needsAssembly || false,
+        item_carrying_cost: itemCarryingCost,
+        item_assembly_cost: itemAssemblyCost
+      };
+    });
 
     const { error: itemsError } = await supabase
       .from('rehome_order_items')
