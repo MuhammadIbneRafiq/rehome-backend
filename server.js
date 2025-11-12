@@ -1069,6 +1069,7 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
       
       // Prepare data for database insertion
       const insertData = {
+        order_number: order_number || null,
         email: contactInfo.email,
         pickuptype: pickupType || null,
         furnitureitems: furnitureItems || null,
@@ -1260,6 +1261,7 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
     console.log('📦 House first and second location Request - Full Body:', firstlocation, secondlocation);
     // Prepare data for database insertion
     const insertData = {
+      order_number: order_number || null,
       email: contactInfo.email,
       pickuptype: pickupType || null,
       furnitureitems: furnitureItems || null,
