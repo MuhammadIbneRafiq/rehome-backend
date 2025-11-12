@@ -5591,26 +5591,52 @@ app.post('/api/sales-history', async (req, res) => {
   }
 });
 
-// Get sales history (admin endpoint) - Using Supabase RPC for optimized performance
+// Get sales history (admin endpoint)
 app.get('/api/admin/sales-history', authenticateAdmin, async (req, res) => {
   try {
-    console.log('📊 Admin fetching sales history via RPC...');
+    console.log('📊 Admin fetching sales history...');
     
     const { page = 1, limit = 50, search, startDate, endDate, category } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
-    // Use Supabase RPC function for optimized query
-    const { data, error } = await supabase.rpc('get_sales_history_with_details', {
-      p_limit: parseInt(limit),
-      p_offset: offset,
-      p_search: search || null,
-      p_category: category || null,
-      p_start_date: startDate || null,
-      p_end_date: endDate || null
-    });
+    let query = supabase
+      .from('sales_history')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    // Apply filters
+    if (search) {
+      query = query.or(`customer_email.ilike.%${search}%,customer_name.ilike.%${search}%,item_name.ilike.%${search}%,order_id.ilike.%${search}%`);
+    }
+    
+    if (startDate) {
+      query = query.gte('created_at', startDate);
+    }
+    
+    if (endDate) {
+      query = query.lte('created_at', endDate);
+    }
+    
+    if (category) {
+      query = query.eq('item_category', category);
+    }
+
+    // Get total count for pagination
+    const { count, error: countError } = await supabase
+      .from('sales_history')
+      .select('*', { count: 'exact', head: true });
+
+    if (countError) {
+      console.error('❌ Error counting sales history:', countError);
+    }
+
+    // Apply pagination
+    query = query.range(offset, offset + parseInt(limit) - 1);
+
+    const { data, error } = await query;
 
     if (error) {
-      console.error('❌ Error fetching sales history via RPC:', error);
+      console.error('❌ Error fetching sales history:', error);
       return res.status(500).json({
         success: false,
         error: 'Failed to fetch sales history',
@@ -5618,42 +5644,18 @@ app.get('/api/admin/sales-history', authenticateAdmin, async (req, res) => {
       });
     }
 
-    // Get total count for pagination
-    let countQuery = supabase
-      .from('sales_history')
-      .select('*', { count: 'exact', head: true });
-
-    if (search) {
-      countQuery = countQuery.or(`customer_email.ilike.%${search}%,customer_name.ilike.%${search}%,item_name.ilike.%${search}%,order_id.ilike.%${search}%`);
-    }
-    if (category) {
-      countQuery = countQuery.eq('item_category', category);
-    }
-    if (startDate) {
-      countQuery = countQuery.gte('created_at', startDate);
-    }
-    if (endDate) {
-      countQuery = countQuery.lte('created_at', endDate);
-    }
-
-    const { count, error: countError } = await countQuery;
-
-    if (countError) {
-      console.error('❌ Error counting sales history:', countError);
-    }
-
-    console.log('✅ Sales history fetched successfully via RPC:', data?.length || 0, 'records');
+    console.log('✅ Sales history fetched successfully:', data.length, 'records');
     res.json({
       success: true,
       data: data || [],
-      pagination: {
+      meta: {
         count: data?.length || 0,
         total: count || 0,
         page: parseInt(page),
         limit: parseInt(limit),
-        totalPages: Math.ceil((count || 0) / parseInt(limit))
-      },
-      timestamp: new Date().toISOString()
+        totalPages: Math.ceil((count || 0) / parseInt(limit)),
+        timestamp: new Date().toISOString()
+      }
     });
 
   } catch (err) {
