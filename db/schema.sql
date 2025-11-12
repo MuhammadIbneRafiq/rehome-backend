@@ -28,19 +28,7 @@ CREATE TABLE city_base_charges (
 -- Index for faster city lookups
 CREATE INDEX idx_city_base_charges_name ON city_base_charges(city_name);
 
--- 3. City Day Data Table
-CREATE TABLE city_day_data (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    city_name VARCHAR(100) NOT NULL UNIQUE,
-    days TEXT[] NOT NULL, -- Array of day names
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Index for faster city lookups
-CREATE INDEX idx_city_day_data_name ON city_day_data(city_name);
-
--- 4. Pricing Configuration Table
+-- 3. Pricing Configuration Table
 CREATE TABLE pricing_config (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     config JSONB NOT NULL,
@@ -52,7 +40,7 @@ CREATE TABLE pricing_config (
 -- Ensure only one active config at a time
 CREATE UNIQUE INDEX idx_pricing_config_active ON pricing_config(is_active) WHERE is_active = TRUE;
 
--- 5. Admin Users Table
+-- 4. Admin Users Table
 CREATE TABLE admin_users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) NOT NULL UNIQUE,
@@ -66,7 +54,7 @@ CREATE TABLE admin_users (
 -- Index for faster email lookups
 CREATE INDEX idx_admin_users_email ON admin_users(email);
 
--- 6. Audit Logs Table
+-- 5. Audit Logs Table
 CREATE TABLE audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     admin_id UUID REFERENCES admin_users(id),
@@ -95,11 +83,10 @@ $$ language 'plpgsql';
 -- Apply triggers to all tables
 CREATE TRIGGER update_furniture_items_updated_at BEFORE UPDATE ON furniture_items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_city_base_charges_updated_at BEFORE UPDATE ON city_base_charges FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_city_day_data_updated_at BEFORE UPDATE ON city_day_data FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_pricing_config_updated_at BEFORE UPDATE ON pricing_config FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_admin_users_updated_at BEFORE UPDATE ON admin_users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- 7. Special Requests Services Table
+-- 6. Special Requests Services Table
 CREATE TABLE services (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     selected_services TEXT[], -- Array of selected services
@@ -232,19 +219,6 @@ INSERT INTO city_base_charges (city_name, normal, city_day, day_of_week) VALUES
 ('Deventer', 159.00, 99.00, 6),
 ('Zwolle', 179.00, 119.00, 7),
 ('Nijmegen', 105.00, 135.00);
-
--- Insert sample city day data
-INSERT INTO city_day_data (city_name, days) VALUES
-('Amsterdam', ARRAY['Saturday', 'Sunday']),
-('Rotterdam', ARRAY['Friday', 'Saturday']),
-('The Hague', ARRAY['Saturday', 'Sunday']),
-('Utrecht', ARRAY['Thursday', 'Friday', 'Saturday']),
-('Eindhoven', ARRAY['Saturday']),
-('Tilburg', ARRAY['Friday', 'Saturday']),
-('Groningen', ARRAY['Saturday', 'Sunday']),
-('Almere', ARRAY['Saturday']),
-('Breda', ARRAY['Friday', 'Saturday']),
-('Nijmegen', ARRAY['Saturday', 'Sunday']);
 
 -- Create initial admin user (password: admin123 - should be changed in production)
 INSERT INTO admin_users (email, password_hash, role) VALUES

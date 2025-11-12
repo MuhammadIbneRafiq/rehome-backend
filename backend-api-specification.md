@@ -36,18 +36,19 @@ CREATE TABLE city_base_charges (
 CREATE INDEX idx_city_base_charges_name ON city_base_charges(city_name);
 ```
 
-### 3. City Day Data Table
+### 3. City Schedules Table
 ```sql
-CREATE TABLE city_day_data (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    city_name VARCHAR(100) NOT NULL UNIQUE,
-    days TEXT[] NOT NULL, -- Array of day names
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE city_schedules (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    date DATE NOT NULL,
+    city TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Index for faster city lookups
-CREATE INDEX idx_city_day_data_name ON city_day_data(city_name);
+CREATE INDEX IF NOT EXISTS idx_city_schedules_date ON city_schedules(date);
+CREATE INDEX IF NOT EXISTS idx_city_schedules_city ON city_schedules(city);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_city_schedules_unique_date_city ON city_schedules(date, city);
 ```
 
 ### 4. Pricing Configuration Table
@@ -251,46 +252,47 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 }
 ```
 
-### City Day Data Endpoints
+### City Schedules Endpoints
 
-#### GET /api/city-day-data
+#### GET /api/city-schedules
 ```typescript
 // Response
 {
   success: boolean;
-  data: CityDayData[];
+  data: CitySchedule[];
 }
 ```
 
-#### POST /api/city-day-data
+#### POST /api/city-schedules
 ```typescript
 // Headers: Authorization: Bearer <admin-token>
 // Request
 {
-  cityName: string;
-  days: string[];
+  date: string;
+  city: string;
 }
 
 // Response
 {
   success: boolean;
-  data?: CityDayData;
+  data?: CitySchedule;
   error?: string;
 }
 ```
 
-#### PUT /api/city-day-data/:cityName
+#### PUT /api/city-schedules/:id
 ```typescript
 // Headers: Authorization: Bearer <admin-token>
 // Request
 {
-  days: string[];
+  date?: string;
+  city?: string;
 }
 
 // Response
 {
   success: boolean;
-  data?: CityDayData;
+  data?: CitySchedule;
   error?: string;
 }
 ```
@@ -415,7 +417,6 @@ $$ language 'plpgsql';
 -- Apply to all tables
 CREATE TRIGGER update_furniture_items_updated_at BEFORE UPDATE ON furniture_items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_city_base_charges_updated_at BEFORE UPDATE ON city_base_charges FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_city_day_data_updated_at BEFORE UPDATE ON city_day_data FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_pricing_config_updated_at BEFORE UPDATE ON pricing_config FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_admin_users_updated_at BEFORE UPDATE ON admin_users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 ```
@@ -424,6 +425,7 @@ CREATE TRIGGER update_admin_users_updated_at BEFORE UPDATE ON admin_users FOR EA
 The backend should include seeding scripts to populate initial data:
 - Default furniture items with categories and points
 - City base charges for all supported cities
+- City schedules for tour schedules
 - City day data for tour schedules
 - Default pricing configuration
 - Initial admin user

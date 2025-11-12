@@ -12,7 +12,7 @@ async function testHouseMovingRequest() {
       email: "muhammadibnerafiq@gmail.com",
       firstName: "Test",
       lastName: "User",
-      phone: "+31612345678"
+      phone: "+31612265704"
     },
     estimatedPrice: 250.00,
     selectedDateRange: {
@@ -60,7 +60,7 @@ async function testHouseMovingRequest() {
       contactInfo: {
         name: "Test User",
         email: "testuser@example.com",
-        phone: "+31612345678"
+        phone: "+31612265704"
       },
       totalPrice: 250.00
     }
