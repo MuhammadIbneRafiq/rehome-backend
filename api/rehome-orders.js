@@ -93,29 +93,52 @@ router.post('/', async (req, res) => {
       return res.status(500).json({ error: 'Failed to create order' });
     }
 
-    // Calculate per-item costs based on assistance options
-    const calculateItemCosts = (item) => {
+    // Calculate per-item costs based on item points from database
+    const calculateItemCosts = async (item) => {
       let itemCarryingCost = 0;
       let itemAssemblyCost = 0;
       
-      // These are placeholder calculations - in reality you'd fetch item points from database
-      // For now, we'll distribute the total costs proportionally
-      const totalItems = items.length;
-      
-      if (item.assistance?.needsCarrying && totalItems > 0) {
-        itemCarryingCost = (carryingCost / totalItems) * (item.quantity || 1);
+      try {
+        // Fetch item points from marketplace_item_details table
+        const { data: itemDetails, error } = await supabase
+          .from('marketplace_item_details')
+          .select('points')
+          .eq('category', item.category)
+          .eq('subcategory', item.subcategory)
+          .single();
+        
+        if (error || !itemDetails) {
+          console.warn(`No item details found for ${item.category}/${item.subcategory}, using default`);
+          return { itemCarryingCost: 0, itemAssemblyCost: 0 };
+        }
+        
+        const itemPoints = itemDetails.points || 1;
+        const quantity = item.quantity || 1;
+        const multiplier = 1.35;
+        
+        // Calculate carrying cost if needed
+        if (item.assistance?.needsCarrying) {
+          const totalFloors = elevatorAvailable ? 1 : Math.max(0, floor || 0);
+          if (totalFloors > 0) {
+            itemCarryingCost = itemPoints * totalFloors * multiplier * quantity;
+          }
+        }
+        
+        // Calculate assembly cost if needed
+        if (item.assistance?.needsAssembly) {
+          itemAssemblyCost = itemPoints * multiplier * quantity;
+        }
+        
+        return { itemCarryingCost, itemAssemblyCost };
+      } catch (err) {
+        console.error('Error calculating item costs:', err);
+        return { itemCarryingCost: 0, itemAssemblyCost: 0 };
       }
-      
-      if (item.assistance?.needsAssembly && totalItems > 0) {
-        itemAssemblyCost = (assemblyCost / totalItems) * (item.quantity || 1);
-      }
-      
-      return { itemCarryingCost, itemAssemblyCost };
     };
     
-    // Insert order items
-    const orderItems = items.map(item => {
-      const { itemCarryingCost, itemAssemblyCost } = calculateItemCosts(item);
+    // Insert order items with calculated costs
+    const orderItems = await Promise.all(items.map(async (item) => {
+      const { itemCarryingCost, itemAssemblyCost } = await calculateItemCosts(item);
       return {
         order_id: order.id,
         marketplace_item_id: item.id,
@@ -127,10 +150,10 @@ router.post('/', async (req, res) => {
         image_url: item.image_url || item.image_urls || [],
         needs_carrying: item.assistance?.needsCarrying || false,
         needs_assembly: item.assistance?.needsAssembly || false,
-        item_carrying_cost: itemCarryingCost,
-        item_assembly_cost: itemAssemblyCost
+        item_carrying_cost: parseFloat(itemCarryingCost.toFixed(2)),
+        item_assembly_cost: parseFloat(itemAssemblyCost.toFixed(2))
       };
-    });
+    }));
 
     const { error: itemsError } = await supabase
       .from('rehome_order_items')
