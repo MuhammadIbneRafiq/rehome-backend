@@ -1,7 +1,17 @@
 import express from 'express';
 import { supabaseClient as supabase } from '../db/params.js';
 import { sendReHomeOrderEmail } from '../notif.js';
+import jwt from 'jsonwebtoken';
 const router = express.Router();
+
+// List of admin email addresses - keep in sync with server.js and frontend admin files
+const ADMIN_EMAILS = [
+  'muhammadibnerafiq@gmail.com',
+  'testnewuser12345@gmail.com',
+  'egzmanagement@gmail.com',
+  'samuel.stroehle8@gmail.com',
+  'info@rehomebv.com'
+];
 
 // Middleware to verify admin permissions
 const verifyAdminPermissions = async (req, res, next) => {
@@ -12,26 +22,59 @@ const verifyAdminPermissions = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
+    const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+
+    let userEmail = null;
+    let userId = null;
+
+    // 1) Try to verify as custom JWT (same behaviour as authenticateAdmin in server.js)
+    try {
+      const decoded = jwt.verify(token, jwtSecret);
+      userEmail = decoded.email;
+      userId = decoded.userId || decoded.sub;
+
+      if (userEmail && ADMIN_EMAILS.includes(userEmail)) {
+        req.user = {
+          id: userId,
+          email: userEmail,
+          provider: decoded.provider || 'custom'
+        };
+        req.adminPermissions = 'admin';
+        return next();
+      }
+    } catch (jwtError) {
+      // Fall back to Supabase verification below
+      console.log('verifyAdminPermissions: JWT verification failed, falling back to Supabase:', jwtError.message);
+    }
+
+    // 2) Fall back to Supabase auth token verification
     const { data: user, error } = await supabase.auth.getUser(token);
     
-    if (error || !user) {
+    if (error || !user || !user.user) {
       return res.status(401).json({ error: 'Invalid token' });
     }
 
-    // Check admin permissions
+    userEmail = user.user.email;
+
+    // 3) Check rehome-specific permissions table
     const { data: permissions, error: permError } = await supabase
       .from('rehome_order_permissions')
       .select('permission_level')
-      .eq('admin_email', user.user.email)
+      .eq('admin_email', userEmail)
       .eq('is_active', true)
       .single();
 
-    if (permError || !permissions) {
+    if (permError && permError.code !== 'PGRST116') {
+      console.error('Error checking rehome_order_permissions:', permError);
+    }
+
+    // Allow access if user is in global ADMIN_EMAILS even without explicit row
+    if (!permissions && !ADMIN_EMAILS.includes(userEmail)) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
     req.user = user.user;
-    req.adminPermissions = permissions.permission_level;
+    req.adminPermissions = permissions?.permission_level || 'admin';
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);
