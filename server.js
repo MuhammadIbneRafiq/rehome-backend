@@ -1038,16 +1038,12 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
             );
             const optimizedImageBuffer = conversionResult.buffer;
             
-            // Create a new file object for upload
-            const processedFile = new File([optimizedImageBuffer], file.originalname, {
-              type: 'image/jpeg'
-            });
-            
-            // Upload to Supabase storage
+            // Upload to Supabase storage (upload buffer directly - Node.js doesn't have File API)
             const fileName = `item-moving/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
             const { data: uploadData, error: uploadError } = await supabase.storage
               .from('special-requests')
-              .upload(fileName, processedFile, {
+              .upload(fileName, optimizedImageBuffer, {
+                contentType: 'image/jpeg',
                 cacheControl: '3600',
                 upsert: false
               });
@@ -1251,16 +1247,12 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
           );
           const optimizedImageBuffer = conversionResult.buffer;
           
-          // Create a new file object for upload
-          const processedFile = new File([optimizedImageBuffer], file.originalname, {
-            type: 'image/jpeg'
-          });
-          
-          // Upload to Supabase storage
+          // Upload to Supabase storage (upload buffer directly - Node.js doesn't have File API)
           const fileName = `house-moving/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
           const { data: uploadData, error: uploadError } = await supabase.storage
             .from('special-requests')
-            .upload(fileName, processedFile, {
+            .upload(fileName, optimizedImageBuffer, {
+              contentType: 'image/jpeg',
               cacheControl: '3600',
               upsert: false
             });
@@ -1702,10 +1694,11 @@ app.post('/api/upload', (req, res, next) => {
               // Upload the processed image
               console.log(`📤 Uploading: ${finalFilename} (${finalBuffer.length} bytes)`);
               
-              const fileObject = new File([finalBuffer], finalFilename, { type: finalMimeType });
               const { data: uploadData, error: uploadError } = await supabaseClient.storage
                 .from('furniture-images')
-                .upload(finalFilename, fileObject);
+                .upload(finalFilename, finalBuffer, {
+                  contentType: finalMimeType
+                });
 
               if (uploadError) {
                   console.error('Error uploading processed file:', uploadError);
@@ -2217,10 +2210,11 @@ app.post('/api/special-requests', (req, res, next) => {
           // Upload the processed image
           console.log(`📤 Uploading: ${finalFilename} (${finalBuffer.length} bytes)`);
           
-          const fileObject = new File([finalBuffer], finalFilename, { type: finalMimeType });
           const { data: uploadData, error: uploadError } = await supabaseClient.storage
             .from('special-requests')
-            .upload(finalFilename, fileObject);
+            .upload(finalFilename, finalBuffer, {
+              contentType: finalMimeType
+            });
 
           if (uploadError) {
             console.error(`📸 Error uploading processed file:`, uploadError);
@@ -5141,10 +5135,11 @@ app.post('/api/item-donation-requests', (req, res, next) => {
           // Upload the processed image
           console.log(`🎁 Uploading: ${finalFilename} (${finalBuffer.length} bytes)`);
           
-          const fileObject = new File([finalBuffer], finalFilename, { type: finalMimeType });
           const { data: uploadData, error: uploadError } = await supabaseClient.storage
             .from('special-requests')
-            .upload(finalFilename, fileObject);
+            .upload(finalFilename, finalBuffer, {
+              contentType: finalMimeType
+            });
 
           if (uploadError) {
             console.error('🎁 Error uploading processed file:', uploadError);
