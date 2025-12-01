@@ -208,8 +208,7 @@ export async function getFurnitureItemsCached() {
   try {
     const { data, error } = await supabaseClient
       .from('furniture_items')
-      .select('*')
-      .eq('is_active', true);
+      .select('*');
     
     if (error) {
       console.error('Error fetching furniture items:', error);
@@ -267,7 +266,7 @@ export async function getCityBaseChargesCached() {
   
   try {
     const { data, error } = await supabaseClient
-      .from('city_prices')
+      .from('city_base_charges')
       .select('*');
     
     if (error) {
@@ -279,8 +278,8 @@ export async function getCityBaseChargesCached() {
     const charges = {};
     data.forEach(city => {
       charges[city.city_name] = {
-        normal: city.normal_price,
-        cityDay: city.city_day_price
+        normal: city.normal,
+        cityDay: city.city_day
       };
     });
     
