@@ -231,6 +231,7 @@ router.post('/', async (req, res) => {
           needsAssembly: item.assistance?.needsAssembly || false,
           needsCarrying: item.assistance?.needsCarrying || false
         })),
+        itemImages: items.map(item => item.imageUrl || item.image_url || null),
         baseTotal,
         assistanceCosts: carryingCost + assemblyCost,
         carryingCost,

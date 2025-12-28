@@ -29,18 +29,23 @@ export const sendReHomeOrderEmail = async (orderData) => {
     elevatorAvailable,
     baseTotal,
     assistanceCosts,
-    pricingBreakdown
+    pricingBreakdown,
+    itemImages // Array of image URLs for items
   } = orderData;
 
   try {
-    // Generate item list HTML
-    const itemsHtml = items.map(item => `
+    // Generate item list HTML with images
+    const itemsHtml = items.map((item, index) => {
+      const imageUrl = itemImages && itemImages[index] ? itemImages[index] : null;
+      return `
       <tr>
+        ${imageUrl ? `<td style="padding: 8px; border-bottom: 1px solid #eee;"><img src="${imageUrl}" alt="${item.name}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;"></td>` : ''}
         <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.name}</td>
         <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.quantity}</td>
         <td style="padding: 8px; border-bottom: 1px solid #eee;">€${item.price.toFixed(2)}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
     const mailOptions = {
       from: `"ReHome BV" <info@rehomebv.com>`,
@@ -68,6 +73,7 @@ export const sendReHomeOrderEmail = async (orderData) => {
             <table style="width: 100%; border-collapse: collapse;">
               <thead>
                 <tr style="background-color: #f2f2f2;">
+                  ${itemImages && itemImages.length > 0 ? '<th style="text-align: left; padding: 8px;">Image</th>' : ''}
                   <th style="text-align: left; padding: 8px;">Item</th>
                   <th style="text-align: left; padding: 8px;">Qty</th>
                   <th style="text-align: left; padding: 8px;">Price</th>
@@ -78,23 +84,23 @@ export const sendReHomeOrderEmail = async (orderData) => {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="2" style="text-align: right; padding: 8px; font-weight: bold;">Items Total:</td>
+                  <td colspan="${itemImages && itemImages.length > 0 ? '3' : '2'}" style="text-align: right; padding: 8px; font-weight: bold;">Items Total:</td>
                   <td style="padding: 8px; font-weight: bold;">€${(baseTotal || totalAmount).toFixed(2)}</td>
                 </tr>
                 ${(pricingBreakdown?.carryingCost > 0 || pricingBreakdown?.breakdown?.carrying?.totalCost > 0) ? `
                 <tr>
-                  <td colspan="2" style="text-align: right; padding: 8px;">Carrying Assistance:</td>
+                  <td colspan="${itemImages && itemImages.length > 0 ? '3' : '2'}" style="text-align: right; padding: 8px;">Carrying Assistance:</td>
                   <td style="padding: 8px;">€${(pricingBreakdown?.carryingCost || pricingBreakdown?.breakdown?.carrying?.totalCost || 0).toFixed(2)}</td>
                 </tr>
                 ` : ''}
                 ${(pricingBreakdown?.assemblyCost > 0 || pricingBreakdown?.breakdown?.assembly?.totalCost > 0) ? `
                 <tr>
-                  <td colspan="2" style="text-align: right; padding: 8px;">Assembly Assistance:</td>
+                  <td colspan="${itemImages && itemImages.length > 0 ? '3' : '2'}" style="text-align: right; padding: 8px;">Assembly Assistance:</td>
                   <td style="padding: 8px;">€${(pricingBreakdown?.assemblyCost || pricingBreakdown?.breakdown?.assembly?.totalCost || 0).toFixed(2)}</td>
                 </tr>
                 ` : ''}
                 <tr style="border-top: 2px solid #ff6b35;">
-                  <td colspan="2" style="text-align: right; padding: 8px; font-weight: bold;">Total:</td>
+                  <td colspan="${itemImages && itemImages.length > 0 ? '3' : '2'}" style="text-align: right; padding: 8px; font-weight: bold;">Total:</td>
                   <td style="padding: 8px; font-weight: bold;">€${totalAmount.toFixed(2)}</td>
                 </tr>
               </tfoot>
@@ -129,6 +135,12 @@ export const sendReHomeOrderEmail = async (orderData) => {
             <li>4️⃣ Completion – Your item(s) will be delivered. You can pay upon delivery with card or later by bank transfer.</li>
             <li>⚠️ Important: If we cannot integrate your order into our schedule, we may need to cancel.</li>
           </ol>
+          
+          <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; border-left: 4px solid #ff6b35; margin: 25px 0;">
+            <h3 style="color: #ff6b35; margin-top: 0; font-size: 16px;">📝 Need to Make Changes?</h3>
+            <p style="margin: 10px 0; color: #333;"><strong>Important:</strong> If you need to request additional changes, revisions, or have questions about your order, please reply to this email or contact us via WhatsApp with your order number.</p>
+            <p style="margin: 10px 0; color: #333;">We will review your request and provide you with a revised cost estimate if applicable.</p>
+          </div>
           
           <p>If you have any questions about your order, please contact us:</p>
           <ul style="list-style-type: none; padding-left: 0;">
@@ -316,7 +328,13 @@ export const sendMovingRequestEmail = async (movingData) => {
             <div style="margin-bottom: 10px;">5️⃣ Completion – We will carry out the service as scheduled. You can pay by card after the service is carried out.</div>
           </div>
           
-          <p>In the meantime, if you have any questions or need to provide additional information, please don't hesitate to contact us at <a href="mailto:info@rehomebv.com">info@rehomebv.com</a>.</p>
+          <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; border-left: 4px solid #ff6b35; margin: 25px 0;">
+            <h3 style="color: #ff6b35; margin-top: 0; font-size: 16px;">📝 Need to Make Changes?</h3>
+            <p style="margin: 10px 0; color: #333;"><strong>Important:</strong> If you need to request additional changes, revisions to your booking, or have questions, please reply to this email or contact us via WhatsApp with your order number (#${order_number}).</p>
+            <p style="margin: 10px 0; color: #333;">We will review your request and provide you with a revised cost estimate if applicable.</p>
+          </div>
+          
+          <p>In the meantime, if you have any questions or need to provide additional information, please don't hesitate to contact us:</p>
           <ul style="list-style-type: none; padding-left: 0;">
             <li><strong>WhatsApp:</strong> <a href="https://wa.me/31612265704" style="color: #ff6b35;">+31 612 265 704</a></li>
             <li><strong>Email:</strong> <a href="mailto:info@rehomebv.com" style="color: #ff6b35;">info@rehomebv.com</a></li>
