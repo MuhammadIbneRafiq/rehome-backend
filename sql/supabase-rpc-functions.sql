@@ -130,12 +130,11 @@ BEGIN
   SELECT jsonb_object_agg(
     city_name,
     jsonb_build_object(
-      'normal', normal_price,
-      'cityDay', city_day_price
+      'normal', normal,
+      'cityDay', city_day
     )
   ) INTO charges
-  FROM city_prices
-  WHERE is_active = true;
+  FROM city_base_charges;
   
   RETURN COALESCE(charges, '{}'::jsonb);
 END;
@@ -156,15 +155,10 @@ BEGIN
       'id', id,
       'name', name,
       'category', category,
-      'base_points', base_points,
-      'material', material,
-      'weight', weight,
-      'dimensions', dimensions
+      'points', points
     )
   ) INTO items
-  FROM furniture_items
-  WHERE is_active = true
-  ORDER BY category, name;
+  FROM furniture_items;
   
   RETURN COALESCE(items, '[]'::jsonb);
 END;
