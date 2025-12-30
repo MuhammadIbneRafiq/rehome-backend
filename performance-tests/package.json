@@ -1,0 +1,31 @@
+{
+  "name": "rehome-performance-tests",
+  "version": "1.0.0",
+  "description": "Performance testing suite for ReHome Supabase RPC functions",
+  "type": "module",
+  "scripts": {
+    "benchmark": "node automated-benchmarks/benchmark-suite.js",
+    "monitor": "node monitoring/real-time-monitor.js",
+    "test:load": "k6 run k6-load-tests/rpc-load-test.js",
+    "test:pricing": "k6 run k6-load-tests/pricing-specific-test.js",
+    "test:load:light": "k6 run --vus 10 --duration 1m k6-load-tests/rpc-load-test.js",
+    "test:load:heavy": "k6 run --vus 50 --duration 5m k6-load-tests/rpc-load-test.js",
+    "test:stress": "k6 run --vus 100 --duration 2m k6-load-tests/rpc-load-test.js",
+    "setup": "node setup-performance-logging.js"
+  },
+  "keywords": [
+    "performance",
+    "testing",
+    "supabase",
+    "rpc",
+    "benchmarking",
+    "k6"
+  ],
+  "author": "ReHome Team",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.4",
+    "dotenv": "^16.6.1"
+  },
+  "devDependencies": {}
+}
