@@ -1015,8 +1015,31 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
         return res.status(400).json({ error: 'Contact information is required' });
       }
 
-      const selecteddate_start = selectedDateRange?.start || null;
-      const selecteddate_end = selectedDateRange?.end || null;
+      // Handle date fields based on dateOption
+      let selecteddate_start = null;
+      let selecteddate_end = null;
+      let selecteddate = null;
+      let finalIsDateFlexible = Boolean(isDateFlexible);
+      
+      if (dateOption === 'rehome') {
+        // Let ReHome choose - all dates NULL, isdateflexible = true
+        selecteddate_start = null;
+        selecteddate_end = null;
+        selecteddate = null;
+        finalIsDateFlexible = true;
+      } else if (dateOption === 'flexible') {
+        // Flexible date range - use selectedDateRange
+        selecteddate_start = selectedDateRange?.start || null;
+        selecteddate_end = selectedDateRange?.end || null;
+        selecteddate = selectedDateRange?.start || null; // Legacy field
+        finalIsDateFlexible = true;
+      } else if (dateOption === 'fixed') {
+        // Fixed dates - for item transport: pickup and dropoff dates
+        selecteddate_start = pickupDate || selectedDateRange?.start || null;
+        selecteddate_end = dropoffDate || null;
+        selecteddate = pickupDate || selectedDateRange?.start || null; // Legacy field
+        finalIsDateFlexible = false;
+      }
 
       // Process uploaded photos
       let photoUrls = [];
@@ -1080,11 +1103,11 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
         lastname: contactInfo.lastName,
         phone: contactInfo.phone || null,
         estimatedprice: estimatedPrice ? parseFloat(estimatedPrice) : 0,
-        selecteddate: pickupDate || selecteddate_start || null,
-        isdateflexible: Boolean(isDateFlexible),
-        selecteddate_start: selecteddate_start || pickupDate || null,
-        selecteddate_end: selecteddate_end || dropoffDate || null,
-        date_option: dateOption || null,
+        selecteddate: selecteddate,
+        isdateflexible: finalIsDateFlexible,
+        selecteddate_start: selecteddate_start,
+        selecteddate_end: selecteddate_end,
+        date_option: dateOption || 'fixed',
         preferred_time_span: preferredTimeSpan || null,
         preferredtimespan: preferredTimeSpan || null,
         extra_instructions: extraInstructions || null,
@@ -1225,8 +1248,31 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
     
     console.log('🏠 House Moving Request - Full Body:', req.body);
     
-    const selecteddate_start = selectedDateRange?.start || null;
-    const selecteddate_end = selectedDateRange?.end || null;
+    // Handle date fields based on dateOption
+    let selecteddate_start = null;
+    let selecteddate_end = null;
+    let selecteddate = null;
+    let finalIsDateFlexible = Boolean(isDateFlexible);
+    
+    if (dateOption === 'rehome') {
+      // Let ReHome choose - all dates NULL, isdateflexible = true
+      selecteddate_start = null;
+      selecteddate_end = null;
+      selecteddate = null;
+      finalIsDateFlexible = true;
+    } else if (dateOption === 'flexible') {
+      // Flexible date range - use selectedDateRange
+      selecteddate_start = selectedDateRange?.start || null;
+      selecteddate_end = selectedDateRange?.end || null;
+      selecteddate = selectedDateRange?.start || null; // Legacy field
+      finalIsDateFlexible = true;
+    } else if (dateOption === 'fixed') {
+      // Fixed date - for house moving: single moving date (start only)
+      selecteddate_start = selectedDateRange?.start || null;
+      selecteddate_end = null; // House moving fixed date has no end date
+      selecteddate = selectedDateRange?.start || null; // Legacy field
+      finalIsDateFlexible = false;
+    }
 
     // Process uploaded photos
     let photoUrls = [];
@@ -1291,11 +1337,11 @@ app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, re
       lastname: contactInfo.lastName,
       phone: contactInfo.phone || null,
       estimatedprice: estimatedPrice ? parseFloat(estimatedPrice) : 0,
-      selecteddate: selecteddate_start,
-      selecteddate_start,
-      selecteddate_end,
-      isdateflexible: Boolean(isDateFlexible),
-      date_option: dateOption || null,
+      selecteddate: selecteddate,
+      selecteddate_start: selecteddate_start,
+      selecteddate_end: selecteddate_end,
+      isdateflexible: finalIsDateFlexible,
+      date_option: dateOption || 'fixed',
       preferred_time_span: preferredTimeSpan || null,
       preferredtimespan: preferredTimeSpan || null,
       extra_instructions: extraInstructions || null,
