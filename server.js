@@ -196,7 +196,7 @@ const pricingCalculationSchema = Joi.object({
     extraHelperItems: Joi.object().pattern(Joi.string(), Joi.boolean()),
     isStudent: Joi.boolean().default(false),
     hasStudentId: Joi.boolean().default(false),
-    isEarlyBooking: Joi.boolean().default(false)
+    daysUntilMove: Joi.number().optional()
 });
 
 app.post("/api/mollie", async (req, res) => {
@@ -3158,7 +3158,7 @@ app.post("/api/calculate-pricing", async (req, res) => {
             extraHelperItems,
             isStudent,
             hasStudentId,
-            isEarlyBooking = false
+            daysUntilMove
         } = req.body;
 
         // Get pricing configuration
@@ -3228,7 +3228,7 @@ app.post("/api/calculate-pricing", async (req, res) => {
             extraHelperItems,
             isStudent,
             hasStudentId,
-            isEarlyBooking,
+            daysUntilMove,
             config,
             cityCharge,
             isCityScheduled,
@@ -3256,7 +3256,7 @@ function calculatePricingBreakdown(params) {
         extraHelperItems,
         isStudent,
         hasStudentId,
-        isEarlyBooking,
+        daysUntilMove,
         config,
         cityCharge,
         isCityScheduled,
@@ -3326,12 +3326,18 @@ function calculatePricingBreakdown(params) {
     const studentDiscountAmount = (isStudent && hasStudentId) ? 
         subtotal * config.studentDiscount : 0;
 
-    // Early booking discount
-    const earlyBookingDiscountAmount = isEarlyBooking ? 
-        subtotal * config.earlyBookingDiscount : 0;
+    // Late booking fee (€50 for 1-3 days, €75 for same/next day)
+    let lateBookingFee = 0;
+    if (daysUntilMove !== undefined && daysUntilMove <= 3) {
+        if (daysUntilMove <= 1) {
+            lateBookingFee = 75; // Urgent booking fee
+        } else {
+            lateBookingFee = 50; // Late booking fee
+        }
+    }
 
-    // Apply discounts
-    subtotal -= studentDiscountAmount + earlyBookingDiscountAmount;
+    // Apply discounts and fees
+    subtotal = subtotal - studentDiscountAmount + lateBookingFee;
 
     // Ensure minimum charge
     const total = Math.max(subtotal, config.minimumCharge);
@@ -3348,7 +3354,7 @@ function calculatePricingBreakdown(params) {
             assemblyCharges: parseFloat(assemblyCharges.toFixed(2)),
             extraHelperCharges: parseFloat(extraHelperCharges.toFixed(2)),
             studentDiscountAmount: parseFloat(studentDiscountAmount.toFixed(2)),
-            earlyBookingDiscountAmount: parseFloat(earlyBookingDiscountAmount.toFixed(2)),
+            lateBookingFee: parseFloat(lateBookingFee.toFixed(2)),
             subtotal: parseFloat(subtotal.toFixed(2)),
             total: parseFloat(total.toFixed(2))
         },
