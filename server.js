@@ -249,6 +249,7 @@ import adminPricingMultipliersRoutes from './api/admin/pricing-multipliers.js';
 import rehomeOrdersRoutes from './api/rehome-orders.js';
 import transportRoutes from './api/transport.js';
 import pricingRoutes from './api/pricing.js';
+import marketplaceRoutes from './api/marketplace.js';
 
 // --------------------  Application Routes --------------------
 
@@ -266,6 +267,7 @@ app.use('/api/admin/pricing-multipliers', adminPricingMultipliersRoutes);
 app.use('/api/rehome-orders', rehomeOrdersRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/transport', transportRoutes);
+app.use('/api/marketplace', marketplaceRoutes);
 
 // --------------------  Authentication Routes --------------------
 // Auth
