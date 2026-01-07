@@ -4,9 +4,12 @@ dotenv.config();
 import { createClient } from "@supabase/supabase-js";
 import pg from "pg";
 
-// Directly set the Supabase configuration values
-const SUPABASE_URL = "https://yhlenudckwewmejigxvl.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlobGVudWRja3dld21lamlneHZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzcyMTk0MDgsImV4cCI6MjA1Mjc5NTQwOH0.CaNKgZXfhkT9-FaGF5hhqQ3aavfUi32R-1ueew8B-S0";
+// Directly set the Supabase configuration values (fallbacks)
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://yhlenudckwewmejigxvl.supabase.co";
+// Prefer service role for server-side (bypass RLS); fallback to anon key if not provided
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlobGVudWRja3dld21lamlneHZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzcyMTk0MDgsImV4cCI6MjA1Mjc5NTQwOH0.CaNKgZXfhkT9-FaGF5hhqQ3aavfUi32R-1ueew8B-S0";
+const SUPABASE_KEY = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 
 console.log("Connecting to Supabase with URL:", SUPABASE_URL);
 

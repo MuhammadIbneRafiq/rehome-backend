@@ -249,9 +249,38 @@ class SupabasePricingService {
    * Calculate carrying cost using new model: 1.35 per floor standard, 0.5 for boxes
    */
   calculateCarryingCost(input, config) {
-    const { items, pickupFloors, dropoffFloors, hasElevatorPickup, hasElevatorDropoff } = input;
+    // Support both frontend naming (floorPickup/floorDropoff) and backend naming (pickupFloors/dropoffFloors)
+    const pickupFloors = input.pickupFloors || input.floorPickup || 0;
+    const dropoffFloors = input.dropoffFloors || input.floorDropoff || 0;
+    const hasElevatorPickup = input.hasElevatorPickup || input.elevatorPickup || false;
+    const hasElevatorDropoff = input.hasElevatorDropoff || input.elevatorDropoff || false;
     
-    if (!items || items.length === 0 || (!pickupFloors && !dropoffFloors)) {
+    // Convert carrying items from frontend object format to array format
+    // Frontend sends: { itemId: true, ... } or carryingServiceItems/carryingUpItems/carryingDownItems
+    let items = input.items || [];
+    
+    // If items is empty, try to build from carryingServiceItems or itemQuantities
+    if (!items.length) {
+      const carryingItems = input.carryingServiceItems || {};
+      const carryingUpItems = input.carryingUpItems || {};
+      const carryingDownItems = input.carryingDownItems || {};
+      const itemQuantities = input.itemQuantities || {};
+      
+      // Merge all carrying item selections
+      const allCarryingItemIds = new Set([
+        ...Object.keys(carryingItems).filter(id => carryingItems[id]),
+        ...Object.keys(carryingUpItems).filter(id => carryingUpItems[id]),
+        ...Object.keys(carryingDownItems).filter(id => carryingDownItems[id])
+      ]);
+      
+      // Convert to array format with quantities
+      items = Array.from(allCarryingItemIds).map(id => ({
+        id,
+        quantity: itemQuantities[id] || 1
+      }));
+    }
+    
+    if (!items.length || (!pickupFloors && !dropoffFloors)) {
       return { floors: 0, itemBreakdown: [], totalCost: 0 };
     }
 
