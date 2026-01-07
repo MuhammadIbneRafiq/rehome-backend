@@ -27,14 +27,31 @@ app.use((req, res, next) => {
     next();
 });
 
-// CORS Configuration - Enable CORS for all routes and origins
-app.use(cors({
-    origin: true, // Allow all origins
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+// CORS Configuration - explicitly allow known origins (local + prod)
+const allowedOrigins = [
+    'http://localhost:5173',
+    'https://rehomebv.com',
+    'https://www.rehomebv.com',
+    'https://rehome-backend.vercel.app'
+];
+
+const corsOptions = {
+    origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, curl, etc.)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error('Not allowed by CORS'));
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     credentials: true,
-    optionsSuccessStatus: 200 // For legacy browser support
-}));
+    optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(json()); // for parsing application/json
 app.use(express.urlencoded({ extended: true, limit: '10mb' })); // for parsing application/x-www-form-urlencoded
