@@ -30,17 +30,22 @@ export const sendReHomeOrderEmail = async (orderData) => {
     baseTotal,
     assistanceCosts,
     pricingBreakdown,
-    itemImages // Array of image URLs for items
+    itemImages, // Array of image URLs for items
+    inventoryNumbers // Array of inventory numbers for items
   } = orderData;
 
   try {
-    // Generate item list HTML with images
+    // Generate item list HTML with images and inventory numbers
     const itemsHtml = items.map((item, index) => {
       const imageUrl = itemImages && itemImages[index] ? itemImages[index] : null;
+      const inventoryNumber = inventoryNumbers && inventoryNumbers[index] ? inventoryNumbers[index] : '';
       return `
       <tr>
         ${imageUrl ? `<td style="padding: 8px; border-bottom: 1px solid #eee;"><img src="${imageUrl}" alt="${item.name}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;"></td>` : ''}
-        <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.name}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #eee;">
+          ${item.name}
+          ${inventoryNumber ? `<br><small style="color: #666;">Item #${inventoryNumber}</small>` : ''}
+        </td>
         <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.quantity}</td>
         <td style="padding: 8px; border-bottom: 1px solid #eee;">€${item.price.toFixed(2)}</td>
       </tr>
@@ -236,30 +241,30 @@ export const sendMovingRequestEmail = async (movingData) => {
           <div style="margin-bottom: 20px;">
             <h4 style="color: #ff6b35; margin-bottom: 10px;">Price Breakdown</h4>
             <table style="width: 100%; border-collapse: collapse;">
-              ${orderSummary.basePrice ? `
+              ${orderSummary.basePrice || orderSummary.lateBookingFee ? `
               <tr style="border-bottom: 1px solid #e0e0e0;">
-                <td style="padding: 8px 0; color: #666;">Base Price</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.basePrice.toFixed(2)}</td>
-              </tr>` : ''}
-              ${orderSummary.itemsCost ? `
-              <tr style="border-bottom: 1px solid #e0e0e0;">
-                <td style="padding: 8px 0; color: #666;">Items</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.itemsCost.toFixed(2)}</td>
+                <td style="padding: 8px 0; color: #666;">Final Base Charge${orderSummary.lateBookingFee > 0 ? ' (Including late booking fee)' : ''}</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${((orderSummary.basePrice || 0) + (orderSummary.lateBookingFee || 0)).toFixed(2)}</td>
               </tr>` : ''}
               ${orderSummary.distanceCost ? `
               <tr style="border-bottom: 1px solid #e0e0e0;">
-                <td style="padding: 8px 0; color: #666;">Distance ${orderSummary.distanceKm ? `(${orderSummary.distanceKm.toFixed(2)} km)` : ''}</td>
+                <td style="padding: 8px 0; color: #666;">Distance Cost ${orderSummary.distanceKm ? `(${orderSummary.distanceKm.toFixed(2)} km)` : ''}</td>
                 <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.distanceCost.toFixed(2)}</td>
               </tr>` : ''}
-              ${orderSummary.additionalServices.carrying > 0 ? `
+              ${orderSummary.itemsCost ? `
               <tr style="border-bottom: 1px solid #e0e0e0;">
-                <td style="padding: 8px 0; color: #666;">Carrying Service</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.additionalServices.carrying.toFixed(2)}</td>
+                <td style="padding: 8px 0; color: #666;">Item Cost</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.itemsCost.toFixed(2)}</td>
               </tr>` : ''}
               ${orderSummary.additionalServices.assembly > 0 ? `
               <tr style="border-bottom: 1px solid #e0e0e0;">
-                <td style="padding: 8px 0; color: #666;">Assembly & Disassembly</td>
+                <td style="padding: 8px 0; color: #666;">Assembly Cost</td>
                 <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.additionalServices.assembly.toFixed(2)}</td>
+              </tr>` : ''}
+              ${orderSummary.additionalServices.carrying > 0 ? `
+              <tr style="border-bottom: 1px solid #e0e0e0;">
+                <td style="padding: 8px 0; color: #666;">Carrying Cost</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${orderSummary.additionalServices.carrying.toFixed(2)}</td>
               </tr>` : ''}
               ${orderSummary.additionalServices.extraHelper > 0 ? `
               <tr style="border-bottom: 1px solid #e0e0e0;">
@@ -268,13 +273,8 @@ export const sendMovingRequestEmail = async (movingData) => {
               </tr>` : ''}
               ${orderSummary.additionalServices.studentDiscount > 0 ? `
               <tr style="border-bottom: 1px solid #e0e0e0;">
-                <td style="padding: 8px 0; color: #28a745;">Student Discount (8.85%)</td>
+                <td style="padding: 8px 0; color: #28a745;">Student Discount</td>
                 <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #28a745;">-€${orderSummary.additionalServices.studentDiscount.toFixed(2)}</td>
-              </tr>` : ''}
-              ${orderSummary.additionalServices.earlyBookingDiscount > 0 ? `
-              <tr style="border-bottom: 1px solid #e0e0e0;">
-                <td style="padding: 8px 0; color: #28a745;">Early Booking Discount</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #28a745;">-€${orderSummary.additionalServices.earlyBookingDiscount.toFixed(2)}</td>
               </tr>` : ''}
             </table>
           </div>
