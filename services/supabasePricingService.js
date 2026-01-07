@@ -1,9 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
 import NodeCache from 'node-cache';
+import { supabaseClient } from '../db/params.js';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+// Use shared Supabase client
+const supabase = supabaseClient;
 
 // Cache for pricing configuration (5 minutes TTL)
 const pricingCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });

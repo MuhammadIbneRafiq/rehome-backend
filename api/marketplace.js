@@ -1,15 +1,13 @@
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
 import rateLimit from 'express-rate-limit';
 import supabasePricingService from '../services/supabasePricingService.js';
 import NodeCache from 'node-cache';
+import { supabaseClient } from '../db/params.js';
 
 const router = express.Router();
 
-// Initialize Supabase client
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+// Use shared Supabase client
+const supabase = supabaseClient;
 
 // Cache for marketplace data (5 minutes TTL)
 const marketplaceCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });

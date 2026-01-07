@@ -1,15 +1,13 @@
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import supabasePricingService from '../services/supabasePricingService.js';
+import { supabaseClient } from '../db/params.js';
 
 const router = express.Router();
 
-// Initialize Supabase client
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+// Use shared Supabase client
+const supabase = supabaseClient;
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
