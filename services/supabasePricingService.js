@@ -441,15 +441,23 @@ class SupabasePricingService {
   }
 
   /**
-   * Helper: Find closest city
+   * Helper: Find closest city from Google Place object
    */
-  findClosestCity(location, cityCharges) {
-    // Simple implementation - in production, use geolocation
-    const cityName = location?.city?.toLowerCase();
-    if (!cityName) return null;
+  findClosestCity(placeObject, cityCharges) {
+    if (!placeObject) return null;
     
-    return cityCharges.find(c => 
-      c.city_name.toLowerCase().includes(cityName)
+    // Extract city from Google Place object structure
+    // Google Place object has: { text, placeId, coordinates, city, postalCode, country, address }
+    const cityName = placeObject.city?.toLowerCase() || 
+                     placeObject.town?.toLowerCase() || 
+                     placeObject.address?.toLowerCase() || 
+                     '';
+    
+    if (!cityName) return null;
+
+    // Match against configured cities
+    return cityCharges.find((c) =>
+      cityName.includes(c.city_name?.toLowerCase())
     );
   }
 

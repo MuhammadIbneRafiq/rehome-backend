@@ -527,20 +527,29 @@ class PricingService {
   }
 
   /**
-   * Find closest supported city (simplified version)
+   * Find closest supported city from Google Place object
    */
-  findClosestCity(location) {
-    // Simplified city matching - in production, you'd use proper geocoding
+  findClosestCity(placeObject) {
+    if (!placeObject) return null;
+    
+    // Extract city from Google Place object structure
+    // Google Place object has: { text, placeId, coordinates, city, postalCode, country, address }
+    const cityName = placeObject.city?.toLowerCase() || 
+                     placeObject.town?.toLowerCase() || 
+                     placeObject.address?.toLowerCase() || 
+                     '';
+    
+    if (!cityName) return null;
+    
     const cities = Object.keys(this.cityBaseCharges || {});
     
     for (const city of cities) {
-      if (location.toLowerCase().includes(city.toLowerCase())) {
+      if (cityName.includes(city.toLowerCase())) {
         return city;
       }
     }
     
-    // Default to Amsterdam if no match
-    return cities[0] || 'Amsterdam';
+    return null;
   }
 }
 
