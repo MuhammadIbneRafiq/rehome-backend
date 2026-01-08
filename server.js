@@ -15,6 +15,7 @@ import http from 'http'; // Import http module for server creation
 import { authenticateUser } from './middleware/auth.js';
 import * as imageProcessingService from './services/imageProcessingService.js';
 import { warmUpCache } from './services/cacheService.js';
+import supabasePricingService from './services/supabasePricingService.js';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 const app = express();
@@ -3151,6 +3152,124 @@ app.put("/api/pricing-config", authenticateAdmin, auditLog, async (req, res) => 
     } catch (error) {
         console.error("Update pricing config error:", error);
         res.status(500).json({ success: false, error: "Internal server error" });
+    }
+});
+
+// ==================== CARRYING CONFIGURATION ENDPOINTS ====================
+
+// Get carrying configuration
+app.get('/api/admin/carrying-config', authenticateAdmin, async (req, res) => {
+    try {
+        const { data, error } = await supabaseClient
+            .from('carrying_config')
+            .select('*')
+            .order('item_type', { ascending: true });
+
+        if (error) {
+            return res.status(500).json({ success: false, ...handleSupabaseError(error) });
+        }
+
+        res.json({ success: true, data: data || [] });
+    } catch (error) {
+        console.error('Get carrying config error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
+// Update carrying configuration for all types
+app.put('/api/admin/carrying-config', authenticateAdmin, auditLog, async (req, res) => {
+    try {
+        const { multiplier_per_floor, base_fee, base_fee_threshold_points } = req.body;
+
+        if (multiplier_per_floor === undefined || base_fee === undefined) {
+            return res.status(400).json({ success: false, error: 'multiplier_per_floor and base_fee are required' });
+        }
+
+        const itemTypes = ['standard', 'box', 'bag', 'luggage'];
+
+        const { data: oldRows } = await supabaseClient
+            .from('carrying_config')
+            .select('*')
+            .in('item_type', itemTypes);
+
+        req.oldValues = oldRows || null;
+
+        const updates = {
+            multiplier_per_floor: parseFloat(multiplier_per_floor),
+            base_fee: parseFloat(base_fee),
+            base_fee_threshold_points: base_fee_threshold_points === undefined
+                ? undefined
+                : (base_fee_threshold_points === null ? null : parseFloat(base_fee_threshold_points)),
+            updated_at: new Date().toISOString()
+        };
+
+        Object.keys(updates).forEach((k) => updates[k] === undefined && delete updates[k]);
+
+        const { data, error } = await supabaseClient
+            .from('carrying_config')
+            .update(updates)
+            .in('item_type', itemTypes)
+            .select('*');
+
+        if (error) {
+            return res.status(500).json({ success: false, ...handleSupabaseError(error) });
+        }
+
+        supabasePricingService.invalidateCache();
+
+        res.json({ success: true, data: data || [] });
+    } catch (error) {
+        console.error('Update carrying config error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
+// Update carrying configuration for a single type
+app.put('/api/admin/carrying-config/:itemType', authenticateAdmin, auditLog, async (req, res) => {
+    try {
+        const { itemType } = req.params;
+        const { multiplier_per_floor, base_fee, base_fee_threshold_points } = req.body;
+
+        if (multiplier_per_floor === undefined && base_fee === undefined && base_fee_threshold_points === undefined) {
+            return res.status(400).json({ success: false, error: 'No updates provided' });
+        }
+
+        const { data: oldRow } = await supabaseClient
+            .from('carrying_config')
+            .select('*')
+            .eq('item_type', itemType)
+            .maybeSingle();
+
+        req.oldValues = oldRow || null;
+
+        const updates = {
+            multiplier_per_floor: multiplier_per_floor === undefined ? undefined : parseFloat(multiplier_per_floor),
+            base_fee: base_fee === undefined ? undefined : parseFloat(base_fee),
+            base_fee_threshold_points: base_fee_threshold_points === undefined
+                ? undefined
+                : (base_fee_threshold_points === null ? null : parseFloat(base_fee_threshold_points)),
+            updated_at: new Date().toISOString()
+        };
+
+        Object.keys(updates).forEach((k) => updates[k] === undefined && delete updates[k]);
+
+        const { data, error } = await supabaseClient
+            .from('carrying_config')
+            .update(updates)
+            .eq('item_type', itemType)
+            .select('*')
+            .single();
+
+        if (error) {
+            return res.status(500).json({ success: false, ...handleSupabaseError(error) });
+        }
+
+        supabasePricingService.invalidateCache();
+
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('Update carrying config (single) error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
     }
 });
 

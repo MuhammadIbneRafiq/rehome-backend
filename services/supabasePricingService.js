@@ -11,6 +11,10 @@ const pricingCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
  * Supabase-based pricing service for backend calculations
  */
 class SupabasePricingService {
+  invalidateCache() {
+    pricingCache.flushAll();
+  }
+
   /**
    * Get all pricing configuration from Supabase with caching
    */
@@ -302,21 +306,29 @@ class SupabasePricingService {
       return { floors: 0, itemBreakdown: [], totalCost: 0 };
     }
 
-    const standardConfig = config.carryingConfig.find(c => c.item_type === 'standard');
-    const boxConfig = config.carryingConfig.find(c => c.item_type === 'box');
-    
-    const STANDARD_MULTIPLIER = standardConfig?.multiplier_per_floor || 1.35;
-    const BOX_MULTIPLIER = boxConfig?.multiplier_per_floor || 0.5;
-    const BASE_FEE = standardConfig?.base_fee || 25;
-    const BASE_FEE_THRESHOLD = standardConfig?.base_fee_threshold_points || 20;
+    const carryingConfigByType = new Map(
+      (config.carryingConfig || []).map(c => [c.item_type, c])
+    );
+
+    const standardConfig = carryingConfigByType.get('standard');
+
+    const BASE_FEE =
+      standardConfig?.base_fee ??
+      (config.carryingConfig || []).find(c => c.base_fee !== null && c.base_fee !== undefined)?.base_fee ??
+      25;
+
+    const BASE_FEE_THRESHOLD = standardConfig?.base_fee_threshold_points;
     
     const itemBreakdown = [];
     let totalCost = 0;
     let totalPoints = 0;
     
     // Calculate floors (use 1st floor if elevator)
-    const effectivePickupFloors = hasElevatorPickup ? 1 : (pickupFloors || 0);
-    const effectiveDropoffFloors = hasElevatorDropoff ? 1 : (dropoffFloors || 0);
+    const rawPickupFloors = pickupFloors || 0;
+    const rawDropoffFloors = dropoffFloors || 0;
+
+    const effectivePickupFloors = hasElevatorPickup ? Math.min(1, rawPickupFloors) : rawPickupFloors;
+    const effectiveDropoffFloors = hasElevatorDropoff ? Math.min(1, rawDropoffFloors) : rawDropoffFloors;
     const totalFloors = effectivePickupFloors + effectiveDropoffFloors;
     
     if (totalFloors === 0) {
@@ -331,11 +343,15 @@ class SupabasePricingService {
       const points = furnitureItem.points * item.quantity;
       totalPoints += points;
       
-      // Determine multiplier based on item type
-      const isBox = furnitureItem.name?.toLowerCase().includes('box') || 
-                    furnitureItem.name?.toLowerCase().includes('bag') ||
-                    furnitureItem.name?.toLowerCase().includes('luggage');
-      const multiplier = isBox ? BOX_MULTIPLIER : STANDARD_MULTIPLIER;
+      const itemNameLower = furnitureItem.name?.toLowerCase() || '';
+
+      let itemType = 'standard';
+      if (itemNameLower.includes('box')) itemType = 'box';
+      else if (itemNameLower.includes('bag')) itemType = 'bag';
+      else if (itemNameLower.includes('luggage')) itemType = 'luggage';
+
+      const itemConfig = carryingConfigByType.get(itemType) || standardConfig;
+      const multiplier = itemConfig?.multiplier_per_floor ?? 1.35;
       
       const cost = points * multiplier * totalFloors;
       totalCost += cost;
@@ -350,8 +366,11 @@ class SupabasePricingService {
       });
     });
     
-    // Apply base fee if total points < threshold and carrying cost > 0
-    if (totalPoints < BASE_FEE_THRESHOLD && totalCost > 0) {
+    const shouldApplyBaseFee =
+      totalCost > 0 &&
+      (BASE_FEE_THRESHOLD === null || BASE_FEE_THRESHOLD === undefined || totalPoints < BASE_FEE_THRESHOLD);
+
+    if (shouldApplyBaseFee) {
       totalCost += BASE_FEE;
     }
     
