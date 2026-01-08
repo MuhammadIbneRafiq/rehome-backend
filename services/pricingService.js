@@ -533,18 +533,23 @@ class PricingService {
     if (!placeObject) return null;
     
     // Extract city from Google Place object structure
-    // Google Place object has: { text, placeId, coordinates, city, postalCode, country, address }
-    const cityName = placeObject.city?.toLowerCase() || 
-                     placeObject.town?.toLowerCase() || 
-                     placeObject.address?.toLowerCase() || 
-                     '';
+    // Priority: displayName > text > formattedAddress > city
+    const searchText = (
+      placeObject.displayName?.toLowerCase() || 
+      placeObject.text?.toLowerCase() || 
+      placeObject.formattedAddress?.toLowerCase() ||
+      placeObject.city?.toLowerCase() || 
+      placeObject.town?.toLowerCase() || 
+      placeObject.address?.toLowerCase() ||
+      ''
+    );
     
-    if (!cityName) return null;
+    if (!searchText) return null;
     
     const cities = Object.keys(this.cityBaseCharges || {});
     
     for (const city of cities) {
-      if (cityName.includes(city.toLowerCase())) {
+      if (searchText.includes(city.toLowerCase())) {
         return city;
       }
     }

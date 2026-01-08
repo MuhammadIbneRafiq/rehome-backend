@@ -152,14 +152,26 @@ class SupabasePricingService {
   async calculateBaseCharge(input, config) {
     const { pickupLocation, dropoffLocation, selectedDate } = input;
     
+    console.log('[DEBUG] calculateBaseCharge - Input locations:', {
+      pickupLocation,
+      dropoffLocation,
+      selectedDate
+    });
+    
     // Find the closest supported city
     const pickupCity = this.findClosestCity(pickupLocation, config.cityCharges);
     const dropoffCity = this.findClosestCity(dropoffLocation, config.cityCharges);
+    
+    console.log('[DEBUG] calculateBaseCharge - Matched cities:', {
+      pickupCity: pickupCity?.city_name,
+      dropoffCity: dropoffCity?.city_name
+    });
     
     // Use the higher base charge between pickup and dropoff
     const city = pickupCity?.normal > dropoffCity?.normal ? pickupCity : dropoffCity;
     
     if (!city) {
+      console.log('[DEBUG] calculateBaseCharge - No city matched, returning default 100');
       return {
         city: null,
         isCityDay: false,
@@ -172,6 +184,12 @@ class SupabasePricingService {
     // Check if it's a city day
     const isCityDay = await this.isCityDay(city, selectedDate);
     const basePrice = isCityDay ? city.city_day : city.normal;
+
+    console.log('[DEBUG] calculateBaseCharge - Final result:', {
+      cityName: city.city_name,
+      isCityDay,
+      basePrice
+    });
 
     return {
       city: city.city_name,
@@ -444,21 +462,41 @@ class SupabasePricingService {
    * Helper: Find closest city from Google Place object
    */
   findClosestCity(placeObject, cityCharges) {
-    if (!placeObject) return null;
+    if (!placeObject) {
+      console.log('[DEBUG] findClosestCity - placeObject is null/undefined');
+      return null;
+    }
+    
+    console.log('[DEBUG] findClosestCity - placeObject:', JSON.stringify(placeObject, null, 2));
     
     // Extract city from Google Place object structure
-    // Google Place object has: { text, placeId, coordinates, city, postalCode, country, address }
-    const cityName = placeObject.city?.toLowerCase() || 
-                     placeObject.town?.toLowerCase() || 
-                     placeObject.address?.toLowerCase() || 
-                     '';
-    
-    if (!cityName) return null;
-
-    // Match against configured cities
-    return cityCharges.find((c) =>
-      cityName.includes(c.city_name?.toLowerCase())
+    // Priority: displayName > text > formattedAddress > city
+    const searchText = (
+      placeObject.displayName?.toLowerCase() || 
+      placeObject.text?.toLowerCase() || 
+      placeObject.formattedAddress?.toLowerCase() ||
+      placeObject.city?.toLowerCase() || 
+      placeObject.town?.toLowerCase() || 
+      placeObject.address?.toLowerCase() ||
+      ''
     );
+    
+    console.log('[DEBUG] findClosestCity - searchText:', searchText);
+    console.log('[DEBUG] findClosestCity - available cities:', cityCharges.map(c => c.city_name));
+    
+    if (!searchText) {
+      console.log('[DEBUG] findClosestCity - No search text extracted');
+      return null;
+    }
+
+    // Match against configured cities - check if city name appears in the search text
+    const match = cityCharges.find((c) =>
+      searchText.includes(c.city_name?.toLowerCase())
+    );
+    
+    console.log('[DEBUG] findClosestCity - match result:', match?.city_name || 'NO MATCH');
+    
+    return match;
   }
 
   /**
