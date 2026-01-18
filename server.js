@@ -2038,6 +2038,13 @@ app.post('/api/special-requests', (req, res, next) => {
     }
   });
 
+  const customerName = (fields.customerName || '').toString().trim();
+  const nameParts = customerName.split(/\s+/).filter(Boolean);
+  const firstName = nameParts.shift() || '';
+  const lastName = nameParts.join(' ');
+
+  const contactInfoPayload = JSON.stringify({ phone, email, firstName, lastName });
+
   // Declare insertData variable
   let insertData = {};
 
@@ -2089,7 +2096,7 @@ app.post('/api/special-requests', (req, res, next) => {
     insertData = {
       selected_services: ['fullInternationalMove', ...selectedServices],
       message: itemDescription,
-      contact_info: { phone, email },
+      contact_info: contactInfoPayload,
       pickup_location: pickupAddress,
       dropoff_location: dropoffAddress,
       pickup_location_coords: null, // Will be added if coordinates are available
@@ -2114,7 +2121,7 @@ app.post('/api/special-requests', (req, res, next) => {
     // Handle other service types (storage, junkRemoval) as before
     const selectedServices = fields.services ? [fields.services] : [selectedService];
     const message = fields.itemDescription || fields.itemList || fields.message || '';
-    const contactInfo = { phone, email };
+    const contactInfo = contactInfoPayload;
     const pickupLocation = fields.pickupAddress || fields.address || '';
     const dropoffLocation = fields.dropoffAddress || fields.dropoffPreference || '';
     const pickupLocationCoords = fields.pickupLocationCoords || null;
@@ -2137,6 +2144,20 @@ app.post('/api/special-requests', (req, res, next) => {
       is_date_flexible: Boolean(isDateFlexible),
       created_at: new Date().toISOString()
     };
+
+    if (selectedService === 'junkRemoval') {
+      const floorPickupRaw = fields.floor;
+      const floorPickupParsed = parseInt(floorPickupRaw, 10);
+      const elevatorValue = (fields.elevatorAvailable || '').toString().toLowerCase();
+
+      if (!Number.isNaN(floorPickupParsed)) {
+        insertData.pickup_floor = floorPickupParsed;
+      }
+
+      if (elevatorValue === 'yes' || elevatorValue === 'no') {
+        insertData.pickup_elevator = elevatorValue;
+      }
+    }
   }
 
   try {
