@@ -688,15 +688,46 @@ class SupabasePricingService {
     
     console.log('[DEBUG] findClosestCity - placeObject:', JSON.stringify(placeObject, null, 2));
     
-    // Extract city from Google Place object structure
-    // Priority: displayName > text > formattedAddress > city
+    // PRIORITY 1: Use the extracted city field directly if available
+    if (placeObject.city) {
+      const cityName = placeObject.city.toLowerCase();
+      console.log('[DEBUG] findClosestCity - Using extracted city field:', cityName);
+      
+      // Direct match on city name
+      const directMatch = cityCharges.find((c) =>
+        c.city_name?.toLowerCase() === cityName ||
+        cityName.includes(c.city_name?.toLowerCase()) ||
+        c.city_name?.toLowerCase().includes(cityName)
+      );
+      
+      if (directMatch) {
+        console.log('[DEBUG] findClosestCity - Direct city match:', directMatch.city_name);
+        return directMatch;
+      }
+      
+      // Handle special cases like "Den Haag" -> "The Hague"
+      const cityVariations = {
+        'den haag': 'The Hague',
+        'the hague': 'The Hague',
+        "'s-hertogenbosch": 's-Hertogenbosch',
+        'den bosch': 's-Hertogenbosch'
+      };
+      
+      const normalizedCity = cityVariations[cityName] || cityVariations[cityName.replace(/'/g, "'")];
+      if (normalizedCity) {
+        const variantMatch = cityCharges.find((c) => c.city_name === normalizedCity);
+        if (variantMatch) {
+          console.log('[DEBUG] findClosestCity - Variant city match:', variantMatch.city_name);
+          return variantMatch;
+        }
+      }
+    }
+    
+    // PRIORITY 2: Search within formattedAddress, displayName, text
     const searchText = (
+      placeObject.formattedAddress?.toLowerCase() ||
       placeObject.displayName?.toLowerCase() || 
       placeObject.text?.toLowerCase() || 
-      placeObject.formattedAddress?.toLowerCase() ||
-      placeObject.city?.toLowerCase() || 
-      placeObject.town?.toLowerCase() || 
-      placeObject.address?.toLowerCase() ||
       ''
     );
     
