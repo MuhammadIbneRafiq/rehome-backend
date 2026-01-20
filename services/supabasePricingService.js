@@ -162,12 +162,15 @@ class SupabasePricingService {
     const { pickupLocation, dropoffLocation } = input;
     const selectedDate = input.selectedDate || input.selectedDateRange?.start;
 
-    console.log('[DEBUG] calculateBaseCharge - Input:', {
+    console.log('[DEBUG] calculateBaseCharge - Full Input:', {
       serviceType: input.serviceType,
+      isDateFlexible: input.isDateFlexible,
       selectedDate,
       selectedDateRange: input.selectedDateRange,
       pickupDate: input.pickupDate,
-      dropoffDate: input.dropoffDate
+      dropoffDate: input.dropoffDate,
+      pickupLocation: pickupLocation?.displayName || pickupLocation?.text || 'unknown',
+      dropoffLocation: dropoffLocation?.displayName || dropoffLocation?.text || 'unknown'
     });
 
     const pickupCityRow = this.findClosestCity(pickupLocation, config.cityCharges);
