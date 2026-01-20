@@ -181,7 +181,25 @@ class SupabasePricingService {
       dropoffCity
     });
 
-    if (!pickupCity || !dropoffCity) {
+    // Fallback: if no match, use the first configured city so pricing never returns 0 silently
+    if (!pickupCityRow || !dropoffCityRow) {
+      const fallback = config.cityCharges?.[0];
+      console.warn('[WARN] calculateBaseCharge - City match failed. Using fallback base charge.', {
+        pickupText: pickupLocation?.displayName || pickupLocation?.text || pickupLocation?.formattedAddress,
+        dropoffText: dropoffLocation?.displayName || dropoffLocation?.text || dropoffLocation?.formattedAddress,
+        fallbackCity: fallback?.city_name,
+      });
+
+      if (fallback) {
+        return {
+          city: fallback.city_name || null,
+          isCityDay: false,
+          originalPrice: fallback.normal || 0,
+          finalPrice: fallback.normal || 0,
+          type: 'Fallback Standard Rate'
+        };
+      }
+
       return {
         city: null,
         isCityDay: false,
