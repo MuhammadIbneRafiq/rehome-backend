@@ -31,6 +31,10 @@ router.post('/create', upload.fields([
   { name: 'studentId', maxCount: 1 },
   { name: 'itemImages', maxCount: 10 }
 ]), async (req, res) => {
+  console.log('[DEBUG] ====== TRANSPORT CREATE REQUEST ======');
+  console.log('[DEBUG] req.body keys:', Object.keys(req.body));
+  console.log('[DEBUG] req.body:', JSON.stringify(req.body, null, 2));
+  
   try {
     const {
       customerName,
@@ -53,6 +57,16 @@ router.post('/create', upload.fields([
       hasElevatorDropoff,
       specialInstructions
     } = req.body;
+    
+    console.log('[DEBUG] Parsed values:', {
+      customerName,
+      email,
+      serviceType,
+      isDateFlexible,
+      selectedDate,
+      pickupDate,
+      dropoffDate
+    });
 
     // Parse items if it's a string
     const parsedItems = typeof items === 'string' ? JSON.parse(items) : items;
@@ -103,10 +117,19 @@ router.post('/create', upload.fields([
     }
 
     // Calculate pricing using Supabase pricing service
+    console.log('[DEBUG] Parsing pickupLocation:', pickupLocation);
+    console.log('[DEBUG] Parsing dropoffLocation:', dropoffLocation);
+    
+    const parsedPickupLocation = JSON.parse(pickupLocation);
+    const parsedDropoffLocation = JSON.parse(dropoffLocation);
+    
+    console.log('[DEBUG] Parsed pickup city:', parsedPickupLocation?.city);
+    console.log('[DEBUG] Parsed dropoff city:', parsedDropoffLocation?.city);
+    
     const pricingInput = {
       serviceType,
-      pickupLocation: JSON.parse(pickupLocation),
-      dropoffLocation: JSON.parse(dropoffLocation),
+      pickupLocation: parsedPickupLocation,
+      dropoffLocation: parsedDropoffLocation,
       selectedDate,
       pickupDate: pickupDate || selectedDate,
       dropoffDate: dropoffDate || selectedDate,
@@ -121,8 +144,11 @@ router.post('/create', upload.fields([
       hasElevatorDropoff: hasElevatorDropoff === 'true',
       daysUntilMove: Math.ceil((new Date(selectedDate) - new Date()) / (1000 * 60 * 60 * 24))
     };
+    
+    console.log('[DEBUG] pricingInput for create:', JSON.stringify(pricingInput, null, 2));
 
     const pricingBreakdown = await supabasePricingService.calculatePricing(pricingInput);
+    console.log('[DEBUG] pricingBreakdown result:', JSON.stringify(pricingBreakdown, null, 2));
 
     // Store transportation request in database
     const { data: request, error: insertError } = await supabase

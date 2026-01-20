@@ -686,7 +686,12 @@ class SupabasePricingService {
       return null;
     }
     
-    console.log('[DEBUG] findClosestCity - placeObject:', JSON.stringify(placeObject, null, 2));
+    console.log('[DEBUG] ====== findClosestCity START ======');
+    console.log('[DEBUG] findClosestCity - placeObject keys:', Object.keys(placeObject));
+    console.log('[DEBUG] findClosestCity - placeObject.city:', placeObject.city);
+    console.log('[DEBUG] findClosestCity - placeObject.formattedAddress:', placeObject.formattedAddress);
+    console.log('[DEBUG] findClosestCity - placeObject.displayName:', placeObject.displayName);
+    console.log('[DEBUG] findClosestCity - placeObject.text:', placeObject.text);
     
     // PRIORITY 1: Use the extracted city field directly if available
     if (placeObject.city) {
