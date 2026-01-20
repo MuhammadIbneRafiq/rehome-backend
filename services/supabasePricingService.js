@@ -162,19 +162,9 @@ class SupabasePricingService {
     const { pickupLocation, dropoffLocation } = input;
     const selectedDate = input.selectedDate || input.selectedDateRange?.start;
 
-    // Infer flexibility if frontend forgets to set the flag (failsafe for "Best offer")
-    const isDateFlexible =
-      !!input.isDateFlexible ||
-      (!input.selectedDateRange?.start &&
-        !input.selectedDateRange?.end &&
-        !input.pickupDate &&
-        !input.dropoffDate &&
-        !selectedDate);
-
     console.log('[DEBUG] calculateBaseCharge - Full Input:', {
       serviceType: input.serviceType,
       isDateFlexible: input.isDateFlexible,
-      inferredDateFlexible: isDateFlexible,
       selectedDate,
       selectedDateRange: input.selectedDateRange,
       pickupDate: input.pickupDate,
@@ -237,11 +227,11 @@ class SupabasePricingService {
     let chargeType = '';
     let isCheapRate = false;
 
-    if (isDateFlexible) {
+    if (input.isDateFlexible) {
       finalCharge = pickupRates.cityDay;
       isCheapRate = true;
       chargeType = 'City Day Rate';
-    } else if (!isDateFlexible && input.selectedDateRange?.start && input.selectedDateRange?.end) {
+    } else if (!input.isDateFlexible && input.selectedDateRange?.start && input.selectedDateRange?.end) {
       const startDate = new Date(input.selectedDateRange.start);
       const endDate = new Date(input.selectedDateRange.end);
       const rangeDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
