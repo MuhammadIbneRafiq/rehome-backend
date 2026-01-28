@@ -116,12 +116,20 @@ router.post('/create', upload.fields([
       }
     }
 
-    // Calculate pricing using Supabase pricing service
+    // Parse location data - they come as JSON strings from FormData
     console.log('[DEBUG] Parsing pickupLocation:', pickupLocation);
     console.log('[DEBUG] Parsing dropoffLocation:', dropoffLocation);
     
-    const parsedPickupLocation = JSON.parse(pickupLocation);
-    const parsedDropoffLocation = JSON.parse(dropoffLocation);
+    let parsedPickupLocation;
+    let parsedDropoffLocation;
+    
+    try {
+      parsedPickupLocation = typeof pickupLocation === 'string' ? JSON.parse(pickupLocation) : pickupLocation;
+      parsedDropoffLocation = typeof dropoffLocation === 'string' ? JSON.parse(dropoffLocation) : dropoffLocation;
+    } catch (parseError) {
+      console.error('[ERROR] Failed to parse location data:', parseError);
+      throw new Error('Invalid location data format');
+    }
     
     console.log('[DEBUG] Parsed pickup city:', parsedPickupLocation?.city);
     console.log('[DEBUG] Parsed dropoff city:', parsedDropoffLocation?.city);
@@ -150,15 +158,15 @@ router.post('/create', upload.fields([
     const pricingBreakdown = await supabasePricingService.calculatePricing(pricingInput);
     console.log('[DEBUG] pricingBreakdown result:', JSON.stringify(pricingBreakdown, null, 2));
 
-    // Store transportation request in database
+    // Store transportation request in database - use already parsed objects
     const { data: request, error: insertError } = await supabase
       .from('transportation_requests')
       .insert({
         customer_name: customerName,
         email,
         phone,
-        pickup_location: JSON.parse(pickupLocation),
-        dropoff_location: JSON.parse(dropoffLocation),
+        pickup_location: parsedPickupLocation,
+        dropoff_location: parsedDropoffLocation,
         selected_date: selectedDate,
         items: parsedItems,
         service_type: serviceType,
