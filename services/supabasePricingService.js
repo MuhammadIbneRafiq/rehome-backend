@@ -409,25 +409,39 @@ class SupabasePricingService {
    */
   calculateItemValue(input, config) {
     const { items } = input;
+    console.log('[DEBUG] calculateItemValue - items:', JSON.stringify(items));
+    console.log('[DEBUG] calculateItemValue - config.furnitureItems count:', config.furnitureItems?.length);
+    
     if (!items || items.length === 0) {
+      console.log('[DEBUG] calculateItemValue - No items, returning 0');
       return { totalPoints: 0, multiplier: 1, cost: 0 };
     }
 
     let totalPoints = 0;
     items.forEach(item => {
       const furnitureItem = config.furnitureItems.find(f => f.id === item.id);
+      console.log('[DEBUG] calculateItemValue - item:', item.id, 'found:', !!furnitureItem, 'points:', furnitureItem?.points);
       if (furnitureItem) {
-        totalPoints += furnitureItem.points * item.quantity;
+        const itemPoints = parseFloat(furnitureItem.points) * item.quantity;
+        totalPoints += itemPoints;
+        console.log('[DEBUG] calculateItemValue - adding points:', itemPoints, 'total now:', totalPoints);
       }
     });
 
     // Apply multiplier based on service type
     const multiplier = input.serviceType === 'house_moving' ? 2.0 : 1.0;
+    const finalCost = totalPoints * multiplier;
+    
+    console.log('[DEBUG] calculateItemValue - FINAL:', {
+      totalPoints,
+      multiplier,
+      cost: finalCost
+    });
     
     return {
       totalPoints,
       multiplier,
-      cost: totalPoints * multiplier
+      cost: finalCost
     };
   }
 
