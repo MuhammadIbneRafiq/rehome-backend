@@ -84,6 +84,18 @@ class SupabasePricingService {
       itemQuantities: input.itemQuantities
     }, null, 2));
     
+    // Convert itemQuantities object to items array if items is not provided
+    if ((!input.items || input.items.length === 0) && input.itemQuantities) {
+      console.log('[PRICING] Converting itemQuantities to items array');
+      input.items = Object.entries(input.itemQuantities)
+        .filter(([_, quantity]) => quantity > 0)
+        .map(([itemId, quantity]) => ({
+          id: itemId,
+          quantity: quantity
+        }));
+      console.log('[PRICING] Converted items:', JSON.stringify(input.items, null, 2));
+    }
+    
     const config = await this.getPricingConfig();
     
     const breakdown = {
