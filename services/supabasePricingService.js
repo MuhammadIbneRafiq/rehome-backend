@@ -5,6 +5,7 @@ import {
   getCityDaysInRangeCached,
   isDateBlockedCached
 } from './cacheService.js';
+import { calculateDistanceFromLocations } from './googleMapsService.js';
 
 // Use shared Supabase client
 const supabase = supabaseClient;
@@ -69,6 +70,20 @@ class SupabasePricingService {
    * Calculate pricing based on input parameters
    */
   async calculatePricing(input) {
+    console.log('\n========== PRICING CALCULATION START ==========');
+    console.log('[PRICING] Input:', JSON.stringify({
+      serviceType: input.serviceType,
+      isDateFlexible: input.isDateFlexible,
+      selectedDate: input.selectedDate,
+      selectedDateRange: input.selectedDateRange,
+      pickupDate: input.pickupDate,
+      dropoffDate: input.dropoffDate,
+      pickupLocation: input.pickupLocation?.city || input.pickupLocation?.displayName,
+      dropoffLocation: input.dropoffLocation?.city || input.dropoffLocation?.displayName,
+      items: input.items?.length || 0,
+      itemQuantities: input.itemQuantities
+    }, null, 2));
+    
     const config = await this.getPricingConfig();
     
     const breakdown = {
@@ -94,16 +109,32 @@ class SupabasePricingService {
 
     // 1. Calculate base charge
     const baseCharge = await this.calculateBaseCharge(input, config);
+    console.log('[PRICING] Base Charge Result:', {
+      finalPrice: baseCharge.finalPrice,
+      type: baseCharge.type,
+      city: baseCharge.city,
+      isCityDay: baseCharge.isCityDay
+    });
     breakdown.basePrice = baseCharge.finalPrice;
     breakdown.breakdown.baseCharge = baseCharge;
 
     // 2. Calculate item value
     const itemValue = this.calculateItemValue(input, config);
+    console.log('[PRICING] Item Value Result:', {
+      totalPoints: itemValue.totalPoints,
+      multiplier: itemValue.multiplier,
+      cost: itemValue.cost
+    });
     breakdown.itemValue = itemValue.cost;
     breakdown.breakdown.items = itemValue;
 
     // 3. Calculate distance cost
     const distanceCost = await this.calculateDistanceCost(input, config);
+    console.log('[PRICING] Distance Cost Result:', {
+      distanceKm: distanceCost.distanceKm,
+      cost: distanceCost.cost,
+      freeThreshold: distanceCost.freeThreshold
+    });
     breakdown.distanceCost = distanceCost.cost;
     breakdown.breakdown.distance = distanceCost;
 
@@ -151,6 +182,20 @@ class SupabasePricingService {
     }
 
     breakdown.total = breakdown.subtotal - breakdown.studentDiscount + breakdown.lateBookingFee;
+    
+    console.log('[PRICING] Final Breakdown:', {
+      basePrice: breakdown.basePrice,
+      itemValue: breakdown.itemValue,
+      distanceCost: breakdown.distanceCost,
+      carryingCost: breakdown.carryingCost,
+      assemblyCost: breakdown.assemblyCost,
+      extraHelperCost: breakdown.extraHelperCost,
+      subtotal: breakdown.subtotal,
+      studentDiscount: breakdown.studentDiscount,
+      lateBookingFee: breakdown.lateBookingFee,
+      total: breakdown.total
+    });
+    console.log('========== PRICING CALCULATION END ==========\n');
 
     return breakdown;
   }
@@ -227,20 +272,24 @@ class SupabasePricingService {
     let chargeType = '';
     let isCheapRate = false;
 
+    // ReHome can suggest option - always cheapest
     if (input.isDateFlexible) {
       finalCharge = pickupRates.cityDay;
       isCheapRate = true;
-      chargeType = 'City Day Rate';
+      chargeType = 'ReHome Choose - Cheapest Rate';
     } else if (!input.isDateFlexible && input.selectedDateRange?.start && input.selectedDateRange?.end) {
+      // Flexible date range
       const startDate = new Date(input.selectedDateRange.start);
       const endDate = new Date(input.selectedDateRange.end);
       const rangeDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
       if (rangeDays > 7) {
+        // Above one week - display cheap base charge for pickup city
         finalCharge = pickupRates.cityDay;
         isCheapRate = true;
-        chargeType = 'City Day Rate';
+        chargeType = 'Flexible Range >7 days - City Day Rate';
       } else {
+        // Below one week - check if cities are included in calendar
         const cityDays = await getCityDaysInRangeCached(
           pickupCity,
           input.selectedDateRange.start,
@@ -249,20 +298,34 @@ class SupabasePricingService {
         const hasCityDaysInRange = (cityDays || []).length > 0;
 
         if (pickupCity === dropoffCity) {
+          // Within city
           if (hasCityDaysInRange) {
             finalCharge = pickupRates.cityDay;
             isCheapRate = true;
-            chargeType = 'City Day Rate';
+            chargeType = 'Flexible Range - City Available';
           } else {
+            // Not available (even if empty date in range)
             finalCharge = pickupRates.normal;
-            chargeType = 'Standard Rate';
+            chargeType = 'Flexible Range - City Not Available';
           }
         } else {
-          chargeType = 'Intercity Rate';
-          if (hasCityDaysInRange) {
-            finalCharge = (pickupRates.cityDay + dropoffRates.normal) / 2;
+          // Between cities
+          const dropoffCityDays = await getCityDaysInRangeCached(
+            dropoffCity,
+            input.selectedDateRange.start,
+            input.selectedDateRange.end
+          );
+          const hasDropoffCityDaysInRange = (dropoffCityDays || []).length > 0;
+          
+          if (hasCityDaysInRange && hasDropoffCityDaysInRange) {
+            // Both cities included on same date within range
+            finalCharge = (pickupRates.cityDay + dropoffRates.cityDay) / 2;
+            isCheapRate = true;
+            chargeType = 'Flexible Range - Both Cities Available';
           } else {
+            // Not both available - use standard charge for pickup city
             finalCharge = pickupRates.normal;
+            chargeType = 'Flexible Range - Standard Rate';
           }
         }
       }
@@ -305,29 +368,46 @@ class SupabasePricingService {
         const isEmpty = !!pickupStatus?.isEmpty && !!dropoffStatus?.isEmpty;
         const isSameCity = pickupCity === dropoffCity;
 
+        // House Moving Fixed Date logic
         if (isSameCity) {
-          if (isIncludedPickup || isEmpty) {
+          // Within City
+          if (isIncludedPickup) {
+            // City included in calendar on that date
             finalCharge = pickupRates.cityDay;
             isCheapRate = true;
-            chargeType = 'City Day Rate';
+            chargeType = 'City Day Rate - Scheduled';
+          } else if (isEmpty) {
+            // Empty day = 75% of standard charge
+            finalCharge = pickupRates.normal * 0.75;
+            chargeType = 'Empty Day - 75% Standard';
           } else {
+            // City not included in calendar
             finalCharge = pickupRates.normal;
             chargeType = 'Standard Rate';
           }
         } else {
-          chargeType = 'Intercity Rate';
-          if (isEmpty) {
-            finalCharge = (pickupRates.cityDay + dropoffRates.normal) / 2;
-            isCheapRate = true;
-          } else if (isIncludedPickup && isIncludedDropoff) {
+          // Between Cities
+          if (isIncludedPickup && isIncludedDropoff) {
+            // Both cities included
             finalCharge = (pickupRates.cityDay + dropoffRates.cityDay) / 2;
             isCheapRate = true;
+            chargeType = 'Intercity - Both Scheduled';
           } else if (isIncludedPickup && !isIncludedDropoff) {
+            // Only pickup included
             finalCharge = (pickupRates.cityDay + dropoffRates.normal) / 2;
+            chargeType = 'Intercity - Pickup Scheduled';
           } else if (!isIncludedPickup && isIncludedDropoff) {
+            // Only dropoff included  
             finalCharge = (pickupRates.normal + dropoffRates.cityDay) / 2;
+            chargeType = 'Intercity - Dropoff Scheduled';
+          } else if (isEmpty) {
+            // Empty day = 75% of higher standard charge
+            finalCharge = Math.max(pickupRates.normal, dropoffRates.normal) * 0.75;
+            chargeType = 'Intercity Empty Day - 75% Higher Standard';
           } else {
+            // None included - use higher standard base charge
             finalCharge = Math.max(pickupRates.normal, dropoffRates.normal);
+            chargeType = 'Intercity - Higher Standard Rate';
           }
         }
       } else {
@@ -356,9 +436,6 @@ class SupabasePricingService {
     const isIncludedPickup = !!pickupStatus?.isScheduled;
     const isIncludedDropoff = !!dropoffStatus?.isScheduled;
 
-    const cheapPickup = isIncludedPickup || isEmptyPickup;
-    const cheapDropoff = isIncludedDropoff || isEmptyDropoff;
-
     const isSameDate = input.pickupDate === input.dropoffDate;
     const isSameCity = pickupCity === dropoffCity;
 
@@ -366,38 +443,84 @@ class SupabasePricingService {
     let chargeType = '';
     let isCheapRate = false;
 
+    // Item Transport Fixed Date logic
     if (isSameCity && isSameDate) {
-      if (cheapPickup) {
+      // Within city, same date
+      if (isIncludedPickup) {
         baseCharge = pickupRates.cityDay;
-        chargeType = 'City Day Rate';
+        chargeType = 'Same City/Date - Scheduled';
         isCheapRate = true;
+      } else if (isEmptyPickup) {
+        // Empty day = 75% of standard charge
+        baseCharge = pickupRates.normal * 0.75;
+        chargeType = 'Same City/Date - Empty (75%)';
       } else {
         baseCharge = pickupRates.normal;
-        chargeType = 'Standard Rate';
+        chargeType = 'Same City/Date - Standard';
       }
     } else if (isSameCity && !isSameDate) {
-      if (cheapPickup && cheapDropoff) {
+      // Within city, different dates
+      if (isIncludedPickup && isIncludedDropoff) {
+        // Both dates included
         baseCharge = pickupRates.cityDay;
-        chargeType = 'City Day Rate';
+        chargeType = 'Same City/Diff Dates - Both Scheduled';
         isCheapRate = true;
-      } else if ((cheapPickup && !cheapDropoff) || (!cheapPickup && cheapDropoff)) {
+      } else if ((isIncludedPickup || isIncludedDropoff) && !(isIncludedPickup && isIncludedDropoff)) {
+        // Only one date included (regardless of other being empty or not)
         baseCharge = (pickupRates.cityDay + pickupRates.normal) / 2;
-        chargeType = 'Mixed Rate';
+        chargeType = 'Same City/Diff Dates - One Scheduled';
+      } else if (isEmptyPickup && isEmptyDropoff) {
+        // Both dates empty = 75% of standard
+        baseCharge = pickupRates.normal * 0.75;
+        chargeType = 'Same City/Diff Dates - Both Empty (75%)';
       } else {
+        // Neither included
         baseCharge = pickupRates.normal;
-        chargeType = 'Standard Rate';
+        chargeType = 'Same City/Diff Dates - Standard';
+      }
+    } else if (!isSameCity && isSameDate) {
+      // Between cities, same date
+      if (isIncludedPickup && isIncludedDropoff) {
+        // Both cities included
+        baseCharge = (pickupRates.cityDay + dropoffRates.cityDay) / 2;
+        chargeType = 'Intercity/Same Date - Both Scheduled';
+        isCheapRate = true;
+      } else if ((isIncludedPickup && !isIncludedDropoff) || (!isIncludedPickup && isIncludedDropoff)) {
+        // Only one city included
+        const includedRate = isIncludedPickup ? pickupRates.cityDay : dropoffRates.cityDay;
+        const notIncludedRate = isIncludedPickup ? dropoffRates.normal : pickupRates.normal;
+        baseCharge = (includedRate + notIncludedRate) / 2;
+        chargeType = 'Intercity/Same Date - One Scheduled';
+      } else if (isEmptyPickup || isEmptyDropoff) {
+        // Date is empty
+        baseCharge = (pickupRates.normal + dropoffRates.normal) / 2;
+        chargeType = 'Intercity/Same Date - Empty';
+      } else {
+        // Neither city included
+        baseCharge = Math.max(pickupRates.normal, dropoffRates.normal);
+        chargeType = 'Intercity/Same Date - Higher Standard';
       }
     } else {
-      chargeType = 'Intercity Rate';
-      if (cheapPickup && cheapDropoff) {
+      // Between cities, different dates
+      if (isIncludedPickup && isIncludedDropoff) {
+        // Both cities included on their dates
         baseCharge = (pickupRates.cityDay + dropoffRates.cityDay) / 2;
+        chargeType = 'Intercity/Diff Dates - Both Scheduled';
         isCheapRate = true;
-      } else if (cheapPickup && !cheapDropoff) {
-        baseCharge = (pickupRates.cityDay + dropoffRates.normal) / 2;
-      } else if (!cheapPickup && cheapDropoff) {
-        baseCharge = (pickupRates.normal + dropoffRates.cityDay) / 2;
+      } else if ((isIncludedPickup && !isIncludedDropoff) || (!isIncludedPickup && isIncludedDropoff)) {
+        // Only one city included (regardless of other being empty or not)
+        const includedRate = isIncludedPickup ? pickupRates.cityDay : dropoffRates.cityDay;
+        const notIncludedRate = isIncludedPickup ? dropoffRates.normal : pickupRates.normal;
+        baseCharge = (includedRate + notIncludedRate) / 2;
+        chargeType = 'Intercity/Diff Dates - One Scheduled';
+      } else if (isEmptyPickup && isEmptyDropoff) {
+        // Both days empty
+        baseCharge = (pickupRates.normal + dropoffRates.normal) / 2;
+        chargeType = 'Intercity/Diff Dates - Both Empty';
       } else {
+        // None of the dates include respective city
         baseCharge = Math.max(pickupRates.normal, dropoffRates.normal);
+        chargeType = 'Intercity/Diff Dates - Higher Standard';
       }
     }
 
@@ -419,17 +542,27 @@ class SupabasePricingService {
 
     let totalPoints = 0;
     items.forEach(item => {
-      const furnitureItem = config.furnitureItems.find(f => f.id === item.id);
-      console.log('[DEBUG] calculateItemValue - item:', item.id, 'found:', !!furnitureItem, 'points:', furnitureItem?.points);
-      if (furnitureItem) {
+      // First try exact ID match
+      let furnitureItem = config.furnitureItems.find(f => f.id === item.id);
+      
+      // If not found by ID and item has points, use the points directly
+      if (!furnitureItem && item.points !== undefined) {
+        console.log('[DEBUG] calculateItemValue - Using item points directly for:', item.id, 'points:', item.points);
+        const itemPoints = parseFloat(item.points);
+        totalPoints += itemPoints;
+        console.log('[DEBUG] calculateItemValue - adding points:', itemPoints, 'total now:', totalPoints);
+      } else if (furnitureItem) {
+        console.log('[DEBUG] calculateItemValue - Found furniture item:', item.id, 'points:', furnitureItem.points);
         const itemPoints = parseFloat(furnitureItem.points) * item.quantity;
         totalPoints += itemPoints;
         console.log('[DEBUG] calculateItemValue - adding points:', itemPoints, 'total now:', totalPoints);
+      } else {
+        console.log('[WARN] calculateItemValue - Item not found and no points provided:', item.id, item.name);
       }
     });
 
     // Apply multiplier based on service type
-    const multiplier = input.serviceType === 'house_moving' ? 2.0 : 1.0;
+    const multiplier = input.serviceType === 'house_moving' || input.serviceType === 'house-moving' ? 2.0 : 1.0;
     const finalCost = totalPoints * multiplier;
     
     console.log('[DEBUG] calculateItemValue - FINAL:', {
@@ -486,10 +619,15 @@ class SupabasePricingService {
    */
   calculateCarryingCost(input, config) {
     // Support both frontend naming (floorPickup/floorDropoff) and backend naming (pickupFloors/dropoffFloors)
-    const pickupFloors = input.pickupFloors || input.floorPickup || 0;
-    const dropoffFloors = input.dropoffFloors || input.floorDropoff || 0;
+    const pickupFloors = parseInt(input.pickupFloors || input.floorPickup || 0);
+    const dropoffFloors = parseInt(input.dropoffFloors || input.floorDropoff || 0);
     const hasElevatorPickup = input.hasElevatorPickup || input.elevatorPickup || false;
     const hasElevatorDropoff = input.hasElevatorDropoff || input.elevatorDropoff || false;
+    
+    // If no floors, no carrying cost
+    if (!pickupFloors && !dropoffFloors) {
+      return { floors: 0, itemBreakdown: [], totalCost: 0 };
+    }
     
     // Convert carrying items from frontend object format to array format
     // Frontend sends: { itemId: true, ... } or carryingServiceItems/carryingUpItems/carryingDownItems
@@ -516,7 +654,12 @@ class SupabasePricingService {
       }));
     }
     
-    if (!items.length || (!pickupFloors && !dropoffFloors)) {
+    // If no items but we have floors, use all items from input for carrying calculation
+    if (!items.length && input.items && input.items.length > 0) {
+      items = input.items;
+    }
+    
+    if (!items.length) {
       return { floors: 0, itemBreakdown: [], totalCost: 0 };
     }
 
@@ -560,12 +703,24 @@ class SupabasePricingService {
       const itemNameLower = furnitureItem.name?.toLowerCase() || '';
 
       let itemType = 'standard';
-      if (itemNameLower.includes('box')) itemType = 'box';
-      else if (itemNameLower.includes('bag')) itemType = 'bag';
-      else if (itemNameLower.includes('luggage')) itemType = 'luggage';
-
-      const itemConfig = carryingConfigByType.get(itemType) || standardConfig;
-      const multiplier = itemConfig?.multiplier_per_floor ?? 1.35;
+      let multiplier = 1.35; // Default standard multiplier
+      
+      if (itemNameLower.includes('box')) {
+        itemType = 'box';
+        multiplier = 0.5; // Boxes use 0.5 multiplier per your requirements
+      } else if (itemNameLower.includes('bag')) {
+        itemType = 'bag';
+        multiplier = 0.5; // Bags also use reduced multiplier
+      } else if (itemNameLower.includes('luggage')) {
+        itemType = 'luggage';
+        multiplier = 0.5; // Luggage uses reduced multiplier
+      }
+      
+      // Check if there's a specific config that overrides
+      const itemConfig = carryingConfigByType.get(itemType);
+      if (itemConfig && itemConfig.multiplier_per_floor != null) {
+        multiplier = itemConfig.multiplier_per_floor;
+      }
       
       const cost = points * multiplier * totalFloors;
       totalCost += cost;
@@ -693,6 +848,7 @@ class SupabasePricingService {
 
   /**
    * Helper: Find closest city from Google Place object
+   * If no exact match, finds the nearest major city
    */
   findClosestCity(placeObject, cityCharges) {
     if (!placeObject) {
@@ -724,10 +880,12 @@ class SupabasePricingService {
         return directMatch;
       }
       
-      // Handle special cases like "Den Haag" -> "The Hague"
+      // Handle special cases like "Den Haag" -> "The Hague", "'s-Gravenhage" -> "The Hague"
       const cityVariations = {
         'den haag': 'The Hague',
         'the hague': 'The Hague',
+        "'s-gravenhage": 'The Hague',
+        's-gravenhage': 'The Hague',
         "'s-hertogenbosch": 's-Hertogenbosch',
         'den bosch': 's-Hertogenbosch'
       };
@@ -755,6 +913,12 @@ class SupabasePricingService {
     
     if (!searchText) {
       console.log('[DEBUG] findClosestCity - No search text extracted');
+      // FALLBACK: Return nearest major city (Amsterdam as default)
+      const fallbackCity = cityCharges.find(c => c.city_name === 'Amsterdam') || cityCharges[0];
+      if (fallbackCity) {
+        console.log('[WARN] findClosestCity - Using fallback city:', fallbackCity.city_name);
+        return fallbackCity;
+      }
       return null;
     }
 
@@ -763,9 +927,35 @@ class SupabasePricingService {
       searchText.includes(c.city_name?.toLowerCase())
     );
     
-    console.log('[DEBUG] findClosestCity - match result:', match?.city_name || 'NO MATCH');
+    if (match) {
+      console.log('[DEBUG] findClosestCity - match result:', match.city_name);
+      return match;
+    }
     
-    return match;
+    // FALLBACK: No match found - find nearest major city
+    console.log('[WARN] findClosestCity - No exact match, finding nearest major city');
+    
+    // Major cities ordered by size/importance
+    const majorCities = ['Amsterdam', 'Rotterdam', 'The Hague', 'Utrecht', 'Eindhoven', 'Tilburg', 'Groningen', 'Almere', 'Breda', 'Nijmegen'];
+    
+    // Try to find the nearest major city from our configured cities
+    for (const majorCity of majorCities) {
+      const nearestCity = cityCharges.find(c => c.city_name === majorCity);
+      if (nearestCity) {
+        console.log('[WARN] findClosestCity - Using nearest major city:', nearestCity.city_name);
+        return nearestCity;
+      }
+    }
+    
+    // Ultimate fallback: just use the first available city
+    const fallbackCity = cityCharges[0];
+    if (fallbackCity) {
+      console.log('[WARN] findClosestCity - Using first available city as fallback:', fallbackCity.city_name);
+      return fallbackCity;
+    }
+    
+    console.log('[ERROR] findClosestCity - No cities available at all');
+    return null;
   }
 
   /**
@@ -780,12 +970,11 @@ class SupabasePricingService {
   }
 
   /**
-   * Helper: Calculate distance between two points
+   * Calculate distance between pickup and dropoff locations
+   * Uses the centralized googleMapsService with caching
    */
   async calculateDistance(pickup, dropoff) {
-    // In production, use Google Maps Distance Matrix API
-    // For now, return a mock distance
-    return 15; // km
+    return await calculateDistanceFromLocations(pickup, dropoff);
   }
 }
 

@@ -69,7 +69,22 @@ router.post('/create', upload.fields([
     });
 
     // Parse items if it's a string
+    console.log('[PRICING DEBUG] Raw items received:', items);
+    console.log('[PRICING DEBUG] Items type:', typeof items);
     const parsedItems = typeof items === 'string' ? JSON.parse(items) : items;
+    console.log('[PRICING DEBUG] Parsed items:', JSON.stringify(parsedItems, null, 2));
+    
+    // Calculate total item points for debugging
+    if (parsedItems && Array.isArray(parsedItems)) {
+      const totalPoints = parsedItems.reduce((sum, item) => sum + (item.points || 0), 0);
+      console.log('[PRICING DEBUG] Total item points:', totalPoints);
+      console.log('[PRICING DEBUG] Item details:', parsedItems.map(item => ({
+        name: item.name,
+        quantity: item.quantity,
+        points: item.points,
+        totalPoints: item.points * item.quantity
+      })));
+    }
 
     // Upload images to Supabase storage
     const imageUrls = [];
@@ -153,42 +168,125 @@ router.post('/create', upload.fields([
       daysUntilMove: Math.ceil((new Date(selectedDate) - new Date()) / (1000 * 60 * 60 * 24))
     };
     
-    console.log('[DEBUG] pricingInput for create:', JSON.stringify(pricingInput, null, 2));
+    console.log('[PRICING DEBUG] pricingInput for create:', JSON.stringify(pricingInput, null, 2));
 
     const pricingBreakdown = await supabasePricingService.calculatePricing(pricingInput);
-    console.log('[DEBUG] pricingBreakdown result:', JSON.stringify(pricingBreakdown, null, 2));
+    console.log('[PRICING DEBUG] pricingBreakdown result:', JSON.stringify(pricingBreakdown, null, 2));
+    console.log('[PRICING DEBUG] Item value specifically:', pricingBreakdown.itemValue);
+    console.log('[PRICING DEBUG] Base price specifically:', pricingBreakdown.basePrice);
+    console.log('[PRICING DEBUG] Total price specifically:', pricingBreakdown.total);
 
-    // Store transportation request in database - use already parsed objects
+    // Generate order number
+    const orderNumber = `TRN-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    
+    // Prepare data for insertion - match exact column names in transportation_requests table
+    const insertData = {
+      customer_name: customerName,
+      email: email,  // Column is 'email' not 'customer_email'
+      phone,
+      pickup_location: parsedPickupLocation,
+      dropoff_location: parsedDropoffLocation,
+      selected_date: selectedDate,
+      items: parsedItems,
+      service_type: serviceType,
+      has_student_id: hasStudentId === 'true',
+      student_id_url: studentIdUrl,
+      needs_assembly: needsAssembly === 'true',
+      needs_extra_helper: needsExtraHelper === 'true',
+      pickup_floors: parseInt(pickupFloors) || 0,
+      dropoff_floors: parseInt(dropoffFloors) || 0,
+      has_elevator_pickup: hasElevatorPickup === 'true',
+      has_elevator_dropoff: hasElevatorDropoff === 'true',
+      special_instructions: specialInstructions || '',
+      item_image_urls: imageUrls,
+      pricing_breakdown: pricingBreakdown,
+      total_price: pricingBreakdown.total,
+      status: 'pending'
+    };
+    
+    console.log('[DATABASE] Attempting to insert transportation request:');
+    console.log('[DATABASE] Insert data:', JSON.stringify(insertData, null, 2));
+    
+    // Store transportation request in database
     const { data: request, error: insertError } = await supabase
       .from('transportation_requests')
-      .insert({
-        customer_name: customerName,
-        email,
-        phone,
-        pickup_location: parsedPickupLocation,
-        dropoff_location: parsedDropoffLocation,
-        selected_date: selectedDate,
-        items: parsedItems,
-        service_type: serviceType,
-        has_student_id: hasStudentId === 'true',
-        student_id_url: studentIdUrl,
-        needs_assembly: needsAssembly === 'true',
-        needs_extra_helper: needsExtraHelper === 'true',
-        pickup_floors: parseInt(pickupFloors) || 0,
-        dropoff_floors: parseInt(dropoffFloors) || 0,
-        has_elevator_pickup: hasElevatorPickup === 'true',
-        has_elevator_dropoff: hasElevatorDropoff === 'true',
-        special_instructions: specialInstructions,
-        item_image_urls: imageUrls,
-        pricing_breakdown: pricingBreakdown,
-        total_price: pricingBreakdown.total,
-        status: 'pending'
-      })
+      .insert(insertData)
       .select()
       .single();
 
     if (insertError) {
-      throw insertError;
+      console.error('[DATABASE ERROR] Failed to insert transportation request:');
+      console.error('[DATABASE ERROR] Error details:', insertError);
+      console.error('[DATABASE ERROR] Error message:', insertError.message);
+      console.error('[DATABASE ERROR] Error code:', insertError.code);
+      console.error('[DATABASE ERROR] Error hint:', insertError.hint);
+      console.error('[DATABASE ERROR] Error details:', insertError.details);
+      throw new Error(`Database insertion failed: ${insertError.message || 'Unknown error'}`);
+    }
+    
+    console.log('[DATABASE] Successfully inserted transportation request with ID:', request?.id);
+
+    // Send confirmation email
+    try {
+      const { sendMovingRequestEmail } = await import('../notif.js');
+      
+      const orderSummary = {
+        pickupDetails: {
+          address: parsedPickupLocation?.displayName || parsedPickupLocation?.text || 'Unknown',
+          floor: parseInt(pickupFloors) || 0,
+          elevator: hasElevatorPickup === 'true'
+        },
+        deliveryDetails: {
+          address: parsedDropoffLocation?.displayName || parsedDropoffLocation?.text || 'Unknown',
+          floor: parseInt(dropoffFloors) || 0,
+          elevator: hasElevatorDropoff === 'true'
+        },
+        schedule: {
+          date: isDateFlexible === 'true' ? 'Flexible' : (pickupDate || selectedDate || 'To be determined'),
+          time: 'To be determined'
+        },
+        items: parsedItems || [],
+        basePrice: pricingBreakdown.basePrice,
+        distanceCost: pricingBreakdown.distanceCost,
+        distanceKm: pricingBreakdown.breakdown?.distance?.distanceKm,
+        itemsCost: pricingBreakdown.itemValue,
+        additionalServices: {
+          assembly: pricingBreakdown.assemblyCost || 0,
+          carrying: pricingBreakdown.carryingCost || 0,
+          extraHelper: pricingBreakdown.extraHelperCost || 0,
+          studentDiscount: pricingBreakdown.studentDiscount || 0
+        },
+        lateBookingFee: pricingBreakdown.lateBookingFee || 0,
+        totalPrice: pricingBreakdown.total,
+        contactInfo: {
+          name: customerName,
+          email: email,
+          phone: phone
+        }
+      };
+
+      const emailResult = await sendMovingRequestEmail({
+        customerEmail: email,
+        customerFirstName: customerName.split(' ')[0] || 'Customer',
+        customerLastName: customerName.split(' ')[1] || '',
+        serviceType: serviceType === 'item-transport' ? 'item-moving' : 'house-moving',
+        pickupLocation: parsedPickupLocation,
+        dropoffLocation: parsedDropoffLocation,
+        selectedDateRange: { start: selectedDate, end: dropoffDate || selectedDate },
+        isDateFlexible: isDateFlexible === 'true',
+        estimatedPrice: pricingBreakdown.total,
+        orderSummary,
+        order_number: orderNumber
+      });
+
+      if (emailResult.success) {
+        console.log('[EMAIL] Confirmation email sent successfully');
+      } else {
+        console.error('[EMAIL ERROR] Failed to send confirmation email:', emailResult.error);
+      }
+    } catch (emailError) {
+      console.error('[EMAIL ERROR] Exception sending confirmation email:', emailError);
+      // Don't fail the request if email fails
     }
 
     res.json({
@@ -311,7 +409,15 @@ router.patch('/admin/requests/:id', async (req, res) => {
  */
 router.post('/calculate-price', async (req, res) => {
   try {
+    console.log('[PRICING DEBUG] Calculate price request body:', JSON.stringify(req.body, null, 2));
+    console.log('[PRICING DEBUG] Items in request:', req.body.items);
+    console.log('[PRICING DEBUG] Item quantities:', req.body.itemQuantities);
+    
     const pricingBreakdown = await supabasePricingService.calculatePricing(req.body);
+    
+    console.log('[PRICING DEBUG] Calculate price response:', JSON.stringify(pricingBreakdown, null, 2));
+    console.log('[PRICING DEBUG] Item value in response:', pricingBreakdown.itemValue);
+    console.log('[PRICING DEBUG] Total price in response:', pricingBreakdown.total);
     
     res.json({
       success: true,

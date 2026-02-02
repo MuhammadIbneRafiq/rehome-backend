@@ -359,7 +359,127 @@ export const sendMovingRequestEmail = async (movingData) => {
   }
 };
 
+/**
+ * Send storage request confirmation email
+ * @param {Object} storageData - Storage request data
+ * @returns {Promise<Object>} - Result of email sending operation
+ */
+export const sendStorageRequestEmail = async (storageData) => {
+  const {
+    customerEmail,
+    customerName,
+    requestNumber,
+    itemDescription,
+    storageStartDate,
+    storageEndDate,
+    pickupLocation,
+    deliveryLocation,
+    specialInstructions
+  } = storageData;
+
+  try {
+    const mailOptions = {
+      from: `"ReHome BV" <info@rehomebv.com>`,
+      to: customerEmail,
+      subject: `Storage Request Confirmation - #${requestNumber}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #ff6b35; margin-bottom: 10px;">ReHome Storage Services</h1>
+            <p style="color: #666; margin: 0;">Your secure storage solution</p>
+          </div>
+          
+          <h2 style="color: #333; margin-bottom: 20px;">Thank you for your storage request!</h2>
+          
+          <p style="color: #ff6b35; font-weight: bold; font-size: 1.2em;">Request Number: #${requestNumber}</p>
+          
+          <p>Dear ${customerName},</p>
+          
+          <p>We have received your storage request and will review it shortly. Our team will contact you within 24 hours with a detailed quote and to arrange pickup/delivery logistics.</p>
+          
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #333; margin-bottom: 15px;">Storage Request Details</h3>
+            
+            <div style="margin-bottom: 15px;">
+              <h4 style="color: #ff6b35; margin-bottom: 10px;">Items to Store</h4>
+              <p style="margin: 5px 0; color: #666;">${itemDescription}</p>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+              <h4 style="color: #ff6b35; margin-bottom: 10px;">Storage Period</h4>
+              <p style="margin: 5px 0; color: #666;">Start: ${new Date(storageStartDate).toLocaleDateString()}</p>
+              <p style="margin: 5px 0; color: #666;">End: ${new Date(storageEndDate).toLocaleDateString()}</p>
+            </div>
+            
+            ${pickupLocation ? `
+            <div style="margin-bottom: 15px;">
+              <h4 style="color: #ff6b35; margin-bottom: 10px;">Pickup Details</h4>
+              <p style="margin: 5px 0; color: #666;">${
+                pickupLocation.type === 'home' 
+                  ? `Address: ${pickupLocation.address}<br>Floor: ${pickupLocation.floor || 0}${pickupLocation.hasElevator ? ' (Elevator available)' : ''}`
+                  : 'Customer will bring items to warehouse'
+              }</p>
+            </div>
+            ` : ''}
+            
+            ${deliveryLocation ? `
+            <div style="margin-bottom: 15px;">
+              <h4 style="color: #ff6b35; margin-bottom: 10px;">Delivery Details</h4>
+              <p style="margin: 5px 0; color: #666;">${
+                deliveryLocation.type === 'home'
+                  ? `Address: ${deliveryLocation.address}<br>Floor: ${deliveryLocation.floor || 0}${deliveryLocation.hasElevator ? ' (Elevator available)' : ''}`
+                  : 'Customer will collect items from warehouse'
+              }</p>
+            </div>
+            ` : ''}
+            
+            ${specialInstructions ? `
+            <div style="margin-bottom: 15px;">
+              <h4 style="color: #ff6b35; margin-bottom: 10px;">Special Instructions</h4>
+              <p style="margin: 5px 0; color: #666;">${specialInstructions}</p>
+            </div>
+            ` : ''}
+          </div>
+          
+          <h3 style="color: #ff6b35; font-size: 18px;">What's Next?</h3>
+          <ol style="padding-left: 20px; color: #666;">
+            <li style="margin-bottom: 10px;">Our team will review your storage requirements</li>
+            <li style="margin-bottom: 10px;">You'll receive a detailed quote within 24 hours</li>
+            <li style="margin-bottom: 10px;">Once approved, we'll schedule pickup at your convenience</li>
+            <li style="margin-bottom: 10px;">Your items will be securely stored in our climate-controlled facility</li>
+            <li style="margin-bottom: 10px;">We'll arrange delivery when you're ready to retrieve your items</li>
+          </ol>
+          
+          <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; border-left: 4px solid #ff6b35; margin: 25px 0;">
+            <h3 style="color: #ff6b35; margin-top: 0; font-size: 16px;">📝 Need to Make Changes?</h3>
+            <p style="margin: 10px 0; color: #333;">If you need to modify your storage request or have questions, please reply to this email or contact us via WhatsApp with your request number (#${requestNumber}).</p>
+          </div>
+          
+          <p>Contact us:</p>
+          <ul style="list-style-type: none; padding-left: 0;">
+            <li><strong>WhatsApp:</strong> <a href="https://wa.me/31612265704" style="color: #ff6b35;">+31 612 265 704</a></li>
+            <li><strong>Email:</strong> <a href="mailto:info@rehomebv.com" style="color: #ff6b35;">info@rehomebv.com</a></li>
+          </ul>
+          
+          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; font-size: 12px; color: #777;">
+            <p>© ${new Date().getFullYear()} ReHome BV. All rights reserved.</p>
+            <p>This email confirms your storage request. If you didn't make this request, please contact us immediately.</p>
+          </div>
+        </div>
+      `
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    console.log('✅ Storage request email sent successfully:', result);
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("❌ Error sending storage request email:", error);
+    return { success: false, error: error.message };
+  }
+};
+
 export default {
   sendReHomeOrderEmail,
-  sendMovingRequestEmail
+  sendMovingRequestEmail,
+  sendStorageRequestEmail
 };

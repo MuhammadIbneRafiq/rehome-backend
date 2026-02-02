@@ -16,6 +16,7 @@ import { authenticateUser } from './middleware/auth.js';
 import * as imageProcessingService from './services/imageProcessingService.js';
 import { warmUpCache } from './services/cacheService.js';
 import supabasePricingService from './services/supabasePricingService.js';
+import * as googleMapsService from './services/googleMapsService.js';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 const app = express();
@@ -3727,7 +3728,7 @@ app.post('/api/calculate-distance', async (req, res) => {
     try {
         const { origin, destination, originPlaceId, destinationPlaceId } = req.body;
 
-        const result = await calculateDistanceBetweenLocations(origin, destination);
+        const result = await googleMapsService.calculateDistance(origin, destination);
         
         if (result.success) {
             res.json(result);
@@ -3743,6 +3744,105 @@ app.post('/api/calculate-distance', async (req, res) => {
                 message: error.message
             } : undefined
         });
+    }
+});
+
+// ==================== GOOGLE PLACES API PROXY ====================
+
+/**
+ * Places Autocomplete Proxy
+ * POST /api/places/autocomplete
+ * Body: { query: string, options?: { regionCodes?, languageCode?, types? } }
+ * Response: { success: boolean, suggestions: Array<{ placeId, text, mainText, secondaryText }> }
+ */
+app.post('/api/places/autocomplete', async (req, res) => {
+    try {
+        const { query, options } = req.body;
+        
+        if (!query) {
+            return res.status(400).json({ success: false, error: 'Query is required' });
+        }
+        
+        const result = await googleMapsService.searchPlacesAutocomplete(query, options || {});
+        
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        console.error('❌ Places autocomplete error:', error.message);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch autocomplete suggestions',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
+
+/**
+ * Place Details Proxy
+ * GET /api/places/:placeId
+ * Response: { success: boolean, place: { placeId, displayName, formattedAddress, coordinates, countryCode, countryName, city } }
+ */
+app.get('/api/places/:placeId', async (req, res) => {
+    try {
+        const { placeId } = req.params;
+        
+        if (!placeId) {
+            return res.status(400).json({ success: false, error: 'Place ID is required' });
+        }
+        
+        const result = await googleMapsService.getPlaceDetails(placeId);
+        
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        console.error('❌ Place details error:', error.message);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch place details',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
+
+/**
+ * Google Maps Cache Stats (Admin only)
+ * GET /api/places/admin/cache-stats
+ */
+app.get('/api/places/admin/cache-stats', authenticateAdmin, (req, res) => {
+    try {
+        const stats = googleMapsService.getCacheStats();
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('❌ Cache stats error:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to get cache stats' });
+    }
+});
+
+/**
+ * Clear Google Maps Cache (Admin only)
+ * POST /api/places/admin/clear-cache
+ * Body: { cacheType?: 'autocomplete' | 'details' | 'distance' | 'all' }
+ */
+app.post('/api/places/admin/clear-cache', authenticateAdmin, (req, res) => {
+    try {
+        const { cacheType } = req.body;
+        
+        if (cacheType === 'all' || !cacheType) {
+            googleMapsService.clearAllCaches();
+        } else {
+            googleMapsService.clearCache(cacheType);
+        }
+        
+        res.json({ success: true, message: `Cache cleared: ${cacheType || 'all'}` });
+    } catch (error) {
+        console.error('❌ Clear cache error:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to clear cache' });
     }
 });
 
