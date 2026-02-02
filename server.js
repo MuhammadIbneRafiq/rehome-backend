@@ -32,6 +32,7 @@ app.use((req, res, next) => {
 // CORS Configuration - explicitly allow known origins (local + prod)
 const allowedOrigins = [
     'http://localhost:5173',
+    'http://127.0.0.1:64413',
     'https://rehomebv.com',
     'https://www.rehomebv.com',
     'https://rehome-backend.vercel.app'
