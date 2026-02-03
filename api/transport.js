@@ -29,9 +29,12 @@ const upload = multer({
  */
 router.post('/create', upload.fields([
   { name: 'studentId', maxCount: 1 },
+  { name: 'storeProofPhoto', maxCount: 1 },
   { name: 'itemImages', maxCount: 10 }
 ]), async (req, res) => {
   console.log('[DEBUG] ====== TRANSPORT CREATE REQUEST ======');
+  console.log('[DEBUG] req.files:', req.files);
+  console.log('[DEBUG] req.files keys:', req.files ? Object.keys(req.files) : 'NO FILES');
   console.log('[DEBUG] req.body keys:', Object.keys(req.body));
   console.log('[DEBUG] req.body:', JSON.stringify(req.body, null, 2));
   
@@ -102,18 +105,51 @@ router.post('/create', upload.fields([
           cacheControl: '3600'
         });
 
-      if (!uploadError) {
+      if (uploadError) {
+        console.error('[STUDENT ID UPLOAD ERROR]', uploadError);
+      } else {
         const { data: { publicUrl } } = supabase.storage
           .from('transport-images')
           .getPublicUrl(fileName);
         studentIdUrl = publicUrl;
+        console.log('[STUDENT ID] Successfully uploaded:', publicUrl);
+      }
+    }
+
+    // Upload store proof photo if provided
+    let storeProofUrl = null;
+    if (req.files?.storeProofPhoto?.[0]) {
+      const storeProofFile = req.files.storeProofPhoto[0];
+      const fileName = `store-proofs/${uuidv4()}-${storeProofFile.originalname}`;
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('transport-images')
+        .upload(fileName, storeProofFile.buffer, {
+          contentType: storeProofFile.mimetype,
+          cacheControl: '3600'
+        });
+
+      if (uploadError) {
+        console.error('[STORE PROOF UPLOAD ERROR]', uploadError);
+      } else {
+        const { data: { publicUrl } } = supabase.storage
+          .from('transport-images')
+          .getPublicUrl(fileName);
+        storeProofUrl = publicUrl;
+        console.log('[STORE PROOF] Successfully uploaded:', publicUrl);
       }
     }
 
     // Upload item images if provided
+    console.log('[IMAGE UPLOAD] Checking for item images...');
+    console.log('[IMAGE UPLOAD] req.files:', req.files);
+    console.log('[IMAGE UPLOAD] req.files?.itemImages:', req.files?.itemImages);
+    
     if (req.files?.itemImages) {
+      console.log(`[IMAGE UPLOAD] Found ${req.files.itemImages.length} item images to upload`);
       for (const file of req.files.itemImages) {
         const fileName = `items/${uuidv4()}-${file.originalname}`;
+        console.log(`[IMAGE UPLOAD] Uploading: ${fileName} (${file.size} bytes, ${file.mimetype})`);
         
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('transport-images')
@@ -122,14 +158,21 @@ router.post('/create', upload.fields([
             cacheControl: '3600'
           });
 
-        if (!uploadError) {
+        if (uploadError) {
+          console.error('[IMAGE UPLOAD ERROR]', uploadError);
+        } else {
           const { data: { publicUrl } } = supabase.storage
             .from('transport-images')
             .getPublicUrl(fileName);
+          console.log(`[IMAGE UPLOAD] Successfully uploaded: ${publicUrl}`);
           imageUrls.push(publicUrl);
         }
       }
+    } else {
+      console.log('[IMAGE UPLOAD] No item images found in request');
     }
+    
+    console.log('[IMAGE UPLOAD] Final imageUrls array:', imageUrls);
 
     // Parse location data - they come as JSON strings from FormData
     console.log('[DEBUG] Parsing pickupLocation:', pickupLocation);
@@ -181,6 +224,7 @@ router.post('/create', upload.fields([
     
     // Prepare data for insertion - match exact column names in transportation_requests table
     const insertData = {
+      order_number: orderNumber,
       customer_name: customerName,
       email: email,  // Column is 'email' not 'customer_email'
       phone,
@@ -191,6 +235,7 @@ router.post('/create', upload.fields([
       service_type: serviceType,
       has_student_id: hasStudentId === 'true',
       student_id_url: studentIdUrl,
+      store_proof_url: storeProofUrl,
       needs_assembly: needsAssembly === 'true',
       needs_extra_helper: needsExtraHelper === 'true',
       pickup_floors: parseInt(pickupFloors) || 0,
