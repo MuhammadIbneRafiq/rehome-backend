@@ -243,7 +243,7 @@ export const sendMovingRequestEmail = async (movingData) => {
             <table style="width: 100%; border-collapse: collapse;">
               ${orderSummary.basePrice || orderSummary.lateBookingFee ? `
               <tr style="border-bottom: 1px solid #e0e0e0;">
-                <td style="padding: 8px 0; color: #666;">Final Base Charge${orderSummary.lateBookingFee > 0 ? ' (Including late booking fee)' : ''}</td>
+                <td style="padding: 8px 0; color: #666;">Base Charge${orderSummary.lateBookingFee > 0 ? ' (Including late booking fee)' : ''}</td>
                 <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${((orderSummary.basePrice || 0) + (orderSummary.lateBookingFee || 0)).toFixed(2)}</td>
               </tr>` : ''}
               ${orderSummary.distanceCost ? `
@@ -330,8 +330,7 @@ export const sendMovingRequestEmail = async (movingData) => {
           
           <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; border-left: 4px solid #ff6b35; margin: 25px 0;">
             <h3 style="color: #ff6b35; margin-top: 0; font-size: 16px;">📝 Need to Make Changes?</h3>
-            <p style="margin: 10px 0; color: #333;"><strong>Important:</strong> If you need to request additional changes, revisions to your booking, or have questions, please reply to this email or contact us via WhatsApp with your order number (#${order_number}).</p>
-            <p style="margin: 10px 0; color: #333;">We will review your request and provide you with a revised cost estimate if applicable.</p>
+            <p style="margin: 10px 0; color: #333;"><strong>Important:</strong> If you need to provide additional information or revisions to your request details, please reply to this email or contact us via WhatsApp with your order number (#${order_number}).</p>
           </div>
           
           <p>In the meantime, if you have any questions or need to provide additional information, please don't hesitate to contact us:</p>

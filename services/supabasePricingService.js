@@ -97,6 +97,7 @@ class SupabasePricingService {
     }
     
     const config = await this.getPricingConfig();
+    console.log('here is the whole fucking config', config);
     
     const breakdown = {
       basePrice: 0,
@@ -765,18 +766,29 @@ class SupabasePricingService {
    * Calculate assembly cost using standardized values
    */
   calculateAssemblyCost(input, config) {
-    const { items, needsAssembly, isMarketplace } = input;
+    const { assemblyItems = {}, disassemblyItems = {}, itemQuantities = {}, isMarketplace } = input;
     
-    if (!needsAssembly || !items || items.length === 0) {
-      return { itemBreakdown: [], totalCost: 0 };
-    }
+    console.log('[ASSEMBLY DEBUG] Input:', {
+      assemblyItems,
+      disassemblyItems,
+      itemQuantities
+    });
     
     const itemBreakdown = [];
     let totalCost = 0;
     
-    items.forEach(item => {
-      const furnitureItem = config.furnitureItems.find(f => f.id === item.id);
-      if (!furnitureItem) return;
+    // Process disassembly items first
+    const disassemblyItemIds = Object.keys(disassemblyItems).filter(id => disassemblyItems[id]);
+    console.log('[ASSEMBLY DEBUG] Disassembly item IDs:', disassemblyItemIds);
+    
+    disassemblyItemIds.forEach(itemId => {
+      const furnitureItem = config.furnitureItems.find(f => f.id === itemId);
+      if (!furnitureItem) {
+        console.log('[ASSEMBLY DEBUG] Furniture item not found for ID:', itemId);
+        return;
+      }
+      
+      const quantity = itemQuantities[itemId] || 1;
       
       // Determine item category
       let category = null;
@@ -789,27 +801,98 @@ class SupabasePricingService {
       
       if (!category) return;
       
-      // Find pricing for this category
+      // Find pricing for this category (case-insensitive)
       const assemblyPrice = config.assemblyPricing.find(a => 
         a.item_category === category && 
         a.item_type.toLowerCase() === itemName
       );
       
-      if (!assemblyPrice) return;
+      if (!assemblyPrice) {
+        console.log('[ASSEMBLY DEBUG] No disassembly price found for item:', itemName);
+        return;
+      }
       
       const price = isMarketplace && assemblyPrice.marketplace_price ? 
         assemblyPrice.marketplace_price : assemblyPrice.price;
       
-      const cost = price * item.quantity;
+      const cost = price * quantity;
       totalCost += cost;
       
       itemBreakdown.push({
         name: furnitureItem.name,
-        quantity: item.quantity,
+        quantity: quantity,
         pricePerItem: price,
-        cost
+        cost,
+        type: 'disassembly'
       });
+      
+      console.log('[ASSEMBLY DEBUG] Added disassembly cost:', cost, 'for', furnitureItem.name);
     });
+    
+    // Process assembly items separately
+    const assemblyItemIds = Object.keys(assemblyItems).filter(id => assemblyItems[id]);
+    console.log('[ASSEMBLY DEBUG] Assembly item IDs:', assemblyItemIds);
+    
+    assemblyItemIds.forEach(itemId => {
+      const furnitureItem = config.furnitureItems.find(f => f.id === itemId);
+      if (!furnitureItem) {
+        console.log('[ASSEMBLY DEBUG] Furniture item not found for ID:', itemId);
+        return;
+      }
+      
+      const quantity = itemQuantities[itemId] || 1;
+      
+      // Determine item category
+      let category = null;
+      const itemName = furnitureItem.name.toLowerCase();
+      
+      console.log('[ASSEMBLY DEBUG] Processing item:', furnitureItem.name, 'Category check...');
+      
+      if (itemName.includes('bed')) category = 'bed';
+      else if (itemName.includes('wardrobe') || itemName.includes('closet')) category = 'closet';
+      else if (itemName.includes('table') || itemName.includes('desk')) category = 'table';
+      else if (itemName.includes('sofa')) category = 'sofa';
+      
+      console.log('[ASSEMBLY DEBUG] Determined category:', category, 'for item:', itemName);
+      
+      if (!category) {
+        console.log('[ASSEMBLY DEBUG] No category found for item:', itemName);
+        return;
+      }
+      
+      // Find pricing for this category (case-insensitive)
+      const assemblyPrice = config.assemblyPricing.find(a => 
+        a.item_category === category && 
+        a.item_type.toLowerCase() === itemName
+      );
+      
+      console.log('[ASSEMBLY DEBUG] Looking for pricing with category:', category, 'and item type:', itemName);
+      console.log('[ASSEMBLY DEBUG] Found assembly price:', assemblyPrice);
+      
+      if (!assemblyPrice) {
+        console.log('[ASSEMBLY DEBUG] No assembly price found for item:', itemName);
+        return;
+      }
+      
+      const price = isMarketplace && assemblyPrice.marketplace_price ? 
+        assemblyPrice.marketplace_price : assemblyPrice.price;
+      
+      const cost = price * quantity;
+      totalCost += cost;
+      
+      itemBreakdown.push({
+        name: furnitureItem.name,
+        quantity: quantity,
+        pricePerItem: price,
+        cost,
+        type: 'assembly'
+      });
+      
+      console.log('[ASSEMBLY DEBUG] Added assembly cost:', cost, 'for', furnitureItem.name);
+    });
+    
+    console.log('[ASSEMBLY DEBUG] Final total cost:', totalCost);
+    console.log('[ASSEMBLY DEBUG] Final item breakdown:', itemBreakdown);
     
     return {
       itemBreakdown,
@@ -821,19 +904,39 @@ class SupabasePricingService {
    * Calculate extra helper cost
    */
   calculateExtraHelperCost(input, config) {
-    const { items, needsExtraHelper } = input;
+    const { items, needsExtraHelper, extraHelperItems, itemQuantities } = input;
     
-    if (!needsExtraHelper) {
+    // Check if extra helper is needed (either boolean or object with selected items)
+    const hasExtraHelper = needsExtraHelper || (extraHelperItems && Object.keys(extraHelperItems).some(id => extraHelperItems[id]));
+    
+    if (!hasExtraHelper) {
       return { totalPoints: 0, category: 'none', cost: 0 };
     }
     
     let totalPoints = 0;
-    items?.forEach(item => {
-      const furnitureItem = config.furnitureItems.find(f => f.id === item.id);
-      if (furnitureItem) {
-        totalPoints += furnitureItem.points * item.quantity;
-      }
-    });
+    
+    // If extraHelperItems is provided, calculate points for selected items only
+    if (extraHelperItems && Object.keys(extraHelperItems).length > 0) {
+      Object.keys(extraHelperItems).forEach(itemId => {
+        if (extraHelperItems[itemId]) {
+          const furnitureItem = config.furnitureItems.find(f => f.id === itemId);
+          if (furnitureItem) {
+            const quantity = itemQuantities?.[itemId] || 1;
+            totalPoints += furnitureItem.points * quantity;
+          }
+        }
+      });
+    } else {
+      // Fallback to old behavior if only needsExtraHelper boolean is provided
+      items?.forEach(item => {
+        const furnitureItem = config.furnitureItems.find(f => f.id === item.id);
+        if (furnitureItem) {
+          totalPoints += furnitureItem.points * item.quantity;
+        }
+      });
+    }
+    
+    console.log('[EXTRA HELPER DEBUG] Total points for extra helper:', totalPoints);
     
     // Find appropriate helper config
     const smallHelper = config.extraHelper.find(h => h.item_threshold <= 30);
@@ -843,12 +946,14 @@ class SupabasePricingService {
     let category = 'none';
     
     if (totalPoints <= 30) {
-      cost = smallHelper?.price || 150;
+      cost = smallHelper?.price;
       category = 'small';
     } else {
-      cost = bigHelper?.price || 250;
+      cost = bigHelper?.price;
       category = 'big';
     }
+    
+    console.log('[EXTRA HELPER DEBUG] Category:', category, 'Cost:', cost);
     
     return {
       totalPoints,
@@ -943,22 +1048,19 @@ class SupabasePricingService {
       return match;
     }
     
-    // FALLBACK: No match found - find nearest major city
-    console.log('[WARN] findClosestCity - No exact match, finding nearest major city');
+    // FALLBACK: No match found - find geographically closest city
+    console.log('[WARN] findClosestCity - No exact match, finding geographically closest city');
     
-    // Major cities ordered by size/importance
-    const majorCities = ['Amsterdam', 'Rotterdam', 'The Hague', 'Utrecht', 'Eindhoven', 'Tilburg', 'Groningen', 'Almere', 'Breda', 'Nijmegen'];
-    
-    // Try to find the nearest major city from our configured cities
-    for (const majorCity of majorCities) {
-      const nearestCity = cityCharges.find(c => c.city_name === majorCity);
-      if (nearestCity) {
-        console.log('[WARN] findClosestCity - Using nearest major city:', nearestCity.city_name);
-        return nearestCity;
+    // If we have coordinates, find the geographically closest city
+    if (placeObject.coordinates?.lat && placeObject.coordinates?.lng) {
+      const closestCity = this.findGeographicallyClosestCity(placeObject.coordinates, cityCharges);
+      if (closestCity) {
+        console.log('[WARN] findClosestCity - Using geographically closest city:', closestCity.city_name);
+        return closestCity;
       }
     }
     
-    // Ultimate fallback: just use the first available city
+    // Ultimate fallback: use the first available city
     const fallbackCity = cityCharges[0];
     if (fallbackCity) {
       console.log('[WARN] findClosestCity - Using first available city as fallback:', fallbackCity.city_name);
@@ -967,6 +1069,61 @@ class SupabasePricingService {
     
     console.log('[ERROR] findClosestCity - No cities available at all');
     return null;
+  }
+
+  /**
+   * Find geographically closest city using straight-line distance
+   * Uses coordinates from city_base_charges table (single source of truth)
+   */
+  findGeographicallyClosestCity(coordinates, cityCharges) {
+    let closestCity = null;
+    let minDistance = Infinity;
+
+    for (const city of cityCharges) {
+      // Use coordinates from database (latitude/longitude columns)
+      if (city.latitude && city.longitude) {
+        const distance = this.calculateStraightLineDistance(
+          coordinates.lat,
+          coordinates.lng,
+          parseFloat(city.latitude),
+          parseFloat(city.longitude)
+        );
+
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestCity = city;
+        }
+      }
+    }
+
+    return closestCity;
+  }
+
+  /**
+   * Calculate straight-line distance between two coordinates using Haversine formula
+   * Returns distance in kilometers
+   */
+  calculateStraightLineDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = this.toRadians(lat2 - lat1);
+    const dLon = this.toRadians(lon2 - lon1);
+    
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRadians(lat1)) * Math.cos(this.toRadians(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+    
+    return distance;
+  }
+
+  /**
+   * Convert degrees to radians
+   */
+  toRadians(degrees) {
+    return degrees * (Math.PI / 180);
   }
 
   /**

@@ -46,9 +46,12 @@ router.post('/create', upload.fields([
       pickupLocation,
       dropoffLocation,
       selectedDate,
+      selectedDateStart,
+      selectedDateEnd,
       pickupDate,
       dropoffDate,
       isDateFlexible,
+      dateOption,
       items,
       serviceType,
       hasStudentId,
@@ -58,7 +61,16 @@ router.post('/create', upload.fields([
       dropoffFloors,
       hasElevatorPickup,
       hasElevatorDropoff,
-      specialInstructions
+      specialInstructions,
+      customItem,
+      preferredTimeSpan,
+      pricingBreakdown,
+      assemblyItems,
+      disassemblyItems,
+      extraHelperItems,
+      carryingServiceItems,
+      carryingUpItems,
+      carryingDownItems
     } = req.body;
     
     console.log('[DEBUG] Parsed values:', {
@@ -212,8 +224,8 @@ router.post('/create', upload.fields([
     };
     
     console.log('[PRICING DEBUG] pricingInput for create:', JSON.stringify(pricingInput, null, 2));
-
-    const pricingBreakdown = await supabasePricingService.calculatePricing(pricingInput);
+    //commented because the one before its being passed from the frontend
+    // const pricingBreakdown = await supabasePricingService.calculatePricing(pricingInput); 
     console.log('[PRICING DEBUG] pricingBreakdown result:', JSON.stringify(pricingBreakdown, null, 2));
     console.log('[PRICING DEBUG] Item value specifically:', pricingBreakdown.itemValue);
     console.log('[PRICING DEBUG] Base price specifically:', pricingBreakdown.basePrice);
@@ -223,14 +235,45 @@ router.post('/create', upload.fields([
     const orderNumber = `TRN-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     
     // Prepare data for insertion - match exact column names in transportation_requests table
+    // Use selectedDateStart/selectedDateEnd directly from frontend
+    // For 'rehome' option, dates are determined by ReHome - leave them null
+    const finalDateStart = dateOption === 'rehome' ? null : (selectedDateStart || pickupDate || selectedDate || null);
+    const finalDateEnd = dateOption === 'rehome' ? null : (selectedDateEnd || dropoffDate || null);
+    
+    console.log('[DATE DEBUG] dateOption:', dateOption, 'selectedDateStart:', selectedDateStart, 'selectedDateEnd:', selectedDateEnd, 'finalDateStart:', finalDateStart, 'finalDateEnd:', finalDateEnd);
+
+    // Parse JSON fields if they're strings
+    const parsedPricingBreakdown = typeof pricingBreakdown === 'string' ? JSON.parse(pricingBreakdown) : pricingBreakdown;
+    const parsedAssemblyItems = typeof assemblyItems === 'string' ? JSON.parse(assemblyItems) : assemblyItems;
+    const parsedDisassemblyItems = typeof disassemblyItems === 'string' ? JSON.parse(disassemblyItems) : disassemblyItems;
+    const parsedExtraHelperItems = typeof extraHelperItems === 'string' ? JSON.parse(extraHelperItems) : extraHelperItems;
+    const parsedCarryingServiceItems = typeof carryingServiceItems === 'string' ? JSON.parse(carryingServiceItems) : carryingServiceItems;
+    const parsedCarryingUpItems = typeof carryingUpItems === 'string' ? JSON.parse(carryingUpItems) : carryingUpItems;
+    const parsedCarryingDownItems = typeof carryingDownItems === 'string' ? JSON.parse(carryingDownItems) : carryingDownItems;
+    
+    // Add all the item selections to the pricing breakdown JSONB
+    const enhancedPricingBreakdown = {
+      ...parsedPricingBreakdown,
+      // Store item selections within pricing_breakdown
+      assemblyItems: parsedAssemblyItems,
+      disassemblyItems: parsedDisassemblyItems,
+      extraHelperItems: parsedExtraHelperItems,
+      carryingServiceItems: parsedCarryingServiceItems,
+      carryingUpItems: parsedCarryingUpItems,
+      carryingDownItems: parsedCarryingDownItems
+    };
+    
     const insertData = {
       order_number: orderNumber,
       customer_name: customerName,
-      email: email,  // Column is 'email' not 'customer_email'
+      email: email,
       phone,
       pickup_location: parsedPickupLocation,
       dropoff_location: parsedDropoffLocation,
       selected_date: selectedDate,
+      selecteddate_start: finalDateStart,
+      selecteddate_end: finalDateEnd,
+      date_option: dateOption || 'fixed',
       items: parsedItems,
       service_type: serviceType,
       has_student_id: hasStudentId === 'true',
@@ -243,9 +286,11 @@ router.post('/create', upload.fields([
       has_elevator_pickup: hasElevatorPickup === 'true',
       has_elevator_dropoff: hasElevatorDropoff === 'true',
       special_instructions: specialInstructions || '',
+      custom_item: customItem || null,
+      preferred_time_span: preferredTimeSpan || null,
       item_image_urls: imageUrls,
-      pricing_breakdown: pricingBreakdown,
-      total_price: pricingBreakdown.total,
+      pricing_breakdown: enhancedPricingBreakdown,
+      total_price: enhancedPricingBreakdown?.total || 0,
       status: 'pending'
     };
     
@@ -287,22 +332,31 @@ router.post('/create', upload.fields([
           elevator: hasElevatorDropoff === 'true'
         },
         schedule: {
-          date: isDateFlexible === 'true' ? 'Flexible' : (pickupDate || selectedDate || 'To be determined'),
-          time: 'To be determined'
+          dateOption: dateOption || 'fixed',
+          date: dateOption === 'rehome' ? 'ReHome Chooses' : 
+                dateOption === 'flexible' ? `Flexible: ${finalDateStart ? new Date(finalDateStart).toLocaleDateString() : ''} - ${finalDateEnd ? new Date(finalDateEnd).toLocaleDateString() : ''}` :
+                `${finalDateStart ? new Date(finalDateStart).toLocaleDateString() : (selectedDate ? new Date(selectedDate).toLocaleDateString() : 'To be determined')}${finalDateEnd && finalDateEnd !== finalDateStart ? ' - ' + new Date(finalDateEnd).toLocaleDateString() : ''}`,
+          time: preferredTimeSpan === 'morning' ? 'Morning (8:00 - 12:00)' :
+                preferredTimeSpan === 'afternoon' ? 'Afternoon (12:00 - 16:00)' :
+                preferredTimeSpan === 'evening' ? 'Evening (16:00 - 20:00)' :
+                preferredTimeSpan === 'anytime' ? 'Anytime' : 'To be determined',
+          preferredTimeSpan: preferredTimeSpan || null
         },
         items: parsedItems || [],
-        basePrice: pricingBreakdown.basePrice,
-        distanceCost: pricingBreakdown.distanceCost,
-        distanceKm: pricingBreakdown.breakdown?.distance?.distanceKm,
-        itemsCost: pricingBreakdown.itemValue,
+        basePrice: parsedPricingBreakdown?.basePrice || 0,
+        distanceCost: parsedPricingBreakdown?.distanceCost || 0,
+        distanceKm: parsedPricingBreakdown?.breakdown?.distance?.distanceKm || 0,
+        itemsCost: parsedPricingBreakdown?.itemValue || 0,
         additionalServices: {
-          assembly: pricingBreakdown.assemblyCost || 0,
-          carrying: pricingBreakdown.carryingCost || 0,
-          extraHelper: pricingBreakdown.extraHelperCost || 0,
-          studentDiscount: pricingBreakdown.studentDiscount || 0
+          assembly: parsedPricingBreakdown?.assemblyCost || 0,
+          assemblyBreakdown: parsedPricingBreakdown?.breakdown?.assembly?.itemBreakdown || [],
+          carrying: parsedPricingBreakdown?.carryingCost || 0,
+          carryingBreakdown: parsedPricingBreakdown?.breakdown?.carrying?.itemBreakdown || [],
+          extraHelper: parsedPricingBreakdown?.extraHelperCost || 0,
+          studentDiscount: parsedPricingBreakdown?.studentDiscount || 0
         },
-        lateBookingFee: pricingBreakdown.lateBookingFee || 0,
-        totalPrice: pricingBreakdown.total,
+        lateBookingFee: parsedPricingBreakdown?.lateBookingFee || 0,
+        totalPrice: parsedPricingBreakdown?.total || 0,
         contactInfo: {
           name: customerName,
           email: email,
@@ -317,11 +371,14 @@ router.post('/create', upload.fields([
         serviceType: serviceType === 'item-transport' ? 'item-moving' : 'house-moving',
         pickupLocation: parsedPickupLocation,
         dropoffLocation: parsedDropoffLocation,
-        selectedDateRange: { start: selectedDate, end: dropoffDate || selectedDate },
+        selectedDateRange: { start: finalDateStart || selectedDate, end: finalDateEnd || finalDateStart || selectedDate },
+        dateOption: dateOption || 'fixed',
+        preferredTimeSpan: preferredTimeSpan || null,
         isDateFlexible: isDateFlexible === 'true',
-        estimatedPrice: pricingBreakdown.total,
+        estimatedPrice: parsedPricingBreakdown?.total || 0,
         orderSummary,
-        order_number: orderNumber
+        order_number: orderNumber,
+        pricingBreakdown: parsedPricingBreakdown
       });
 
       if (emailResult.success) {

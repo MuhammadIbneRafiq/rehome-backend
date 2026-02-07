@@ -981,490 +981,6 @@ app.get('/api/furniture/:id', async (req, res) => {
     }
 });
 
-// item moving request.
-// 9. Item Moving Request Endpoint with Distance Calculation and Photo Upload
-app.post('/api/item-moving-requests', upload.array('photos', 10), async (req, res) => {
-    try {
-      // Parse the JSON data from FormData
-      const payload = JSON.parse(req.body.data);
-      
-      const {
-        order_number,
-        pickupType,
-        furnitureItems,
-        customItem,
-        floorPickup,
-        floorDropoff,
-        contactInfo,
-        estimatedPrice,
-        selectedDateRange,
-        isDateFlexible,
-        pickupDate,
-        dropoffDate,
-        dateOption,
-        preferredTimeSpan,
-        extraInstructions,
-        elevatorPickup,
-        elevatorDropoff,
-        disassembly,
-        assembly,
-        extraHelper,
-        carryingService,
-        isStudent,
-        studentId,
-        storeProofPhoto,
-        disassemblyItems,
-        assemblyItems,
-        extraHelperItems,
-        carryingServiceItems,
-        basePrice,
-        itemPoints,
-        itemValue,
-        carryingCost,
-        disassemblyCost,
-        distanceCost,
-        extraHelperCost,
-        studentDiscount,
-        distanceKm,
-        firstlocation,
-        secondlocation,
-        firstlocation_coords,
-        secondlocation_coords,
-        orderSummary,
-      } = payload;
-      console.log('📦 Item Moving Request - Full Body:', req.body);
-      
-      // Validate required fields
-      if (!contactInfo || !contactInfo.email || !contactInfo.firstName || !contactInfo.lastName) {
-        return res.status(400).json({ error: 'Contact information is required' });
-      }
-
-      // Handle date fields based on dateOption
-      let selecteddate_start = null;
-      let selecteddate_end = null;
-      let selecteddate = null;
-      let finalIsDateFlexible = Boolean(isDateFlexible);
-      
-      if (dateOption === 'rehome') {
-        // Let ReHome choose - all dates NULL, isdateflexible = true
-        selecteddate_start = null;
-        selecteddate_end = null;
-        selecteddate = null;
-        finalIsDateFlexible = true;
-      } else if (dateOption === 'flexible') {
-        // Flexible date range - use selectedDateRange
-        selecteddate_start = selectedDateRange?.start || null;
-        selecteddate_end = selectedDateRange?.end || null;
-        selecteddate = selectedDateRange?.start || null; // Legacy field
-        finalIsDateFlexible = true;
-      } else if (dateOption === 'fixed') {
-        // Fixed dates - for item transport: pickup and dropoff dates
-        selecteddate_start = pickupDate || selectedDateRange?.start || null;
-        selecteddate_end = dropoffDate || null;
-        selecteddate = pickupDate || selectedDateRange?.start || null; // Legacy field
-        finalIsDateFlexible = false;
-      }
-
-      // Process uploaded photos
-      let photoUrls = [];
-      if (req.files && req.files.length > 0) {
-        console.log('📸 Processing', req.files.length, 'uploaded photos for item moving request');
-        
-        for (const file of req.files) {
-          try {
-            // Convert image to web format and process with sharp
-            const conversionResult = await imageProcessingService.convertImageToWebFormat(
-              file.buffer,
-              file.originalname,
-              {
-                quality: 85,
-                maxWidth: 1920,
-                maxHeight: 1080,
-                removeMetadata: true
-              }
-            );
-            const optimizedImageBuffer = conversionResult.buffer;
-            
-            // Upload to Supabase storage (upload buffer directly - Node.js doesn't have File API)
-            const fileName = `item-moving/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
-            const { data: uploadData, error: uploadError } = await supabase.storage
-              .from('special-requests')
-              .upload(fileName, optimizedImageBuffer, {
-                contentType: 'image/jpeg',
-                cacheControl: '3600',
-                upsert: false
-              });
-            
-            if (uploadError) {
-              console.error('❌ Photo upload error:', uploadError);
-              continue; // Skip this photo but continue with others
-            }
-            
-            // Get the public URL
-            const { data: { publicUrl } } = supabase.storage
-              .from('special-requests')
-              .getPublicUrl(fileName);
-            
-            photoUrls.push(publicUrl);
-            console.log('✅ Photo uploaded successfully:', publicUrl);
-          } catch (photoError) {
-            console.error('❌ Error processing photo:', photoError);
-            continue; // Skip this photo but continue with others
-          }
-        }
-      }
-      
-      // Prepare data for database insertion
-      const insertData = {
-        order_number: order_number || null,
-        email: contactInfo.email,
-        pickuptype: pickupType || null,
-        furnitureitems: furnitureItems || null,
-        customitem: customItem || null,
-        floorpickup: floorPickup ? parseInt(floorPickup, 10) : 0,
-        floordropoff: floorDropoff ? parseInt(floorDropoff, 10) : 0,
-        firstname: contactInfo.firstName,
-        lastname: contactInfo.lastName,
-        phone: contactInfo.phone || null,
-        estimatedprice: estimatedPrice ? parseFloat(estimatedPrice) : 0,
-        selecteddate: selecteddate,
-        isdateflexible: finalIsDateFlexible,
-        selecteddate_start: selecteddate_start,
-        selecteddate_end: selecteddate_end,
-        date_option: dateOption || 'fixed',
-        preferred_time_span: preferredTimeSpan || null,
-        preferredtimespan: preferredTimeSpan || null,
-        extra_instructions: extraInstructions || null,
-        elevator_pickup: elevatorPickup || false,
-        elevator_dropoff: elevatorDropoff || false,
-        disassembly: disassembly || false,
-        assembly: assembly || false,
-        extra_helper: extraHelper || false,
-        carrying_service: carryingService || false,
-        is_student: isStudent || false,
-        student_id: studentId ? studentId.name : null,
-        store_proof_photo: storeProofPhoto ? storeProofPhoto.name : null,
-        disassembly_items: disassemblyItems || null,
-        assembly_items: assemblyItems || null,
-        extra_helper_items: extraHelperItems || null,
-        carrying_service_items: carryingServiceItems || null,
-        baseprice: basePrice ? parseFloat(basePrice) : null,
-        itempoints: itemPoints ? parseInt(itemPoints, 10) : null,
-        itemvalue: itemValue ? parseFloat(itemValue) : null,
-        carryingcost: carryingCost ? parseFloat(carryingCost) : null,
-        disassemblycost: disassemblyCost ? parseFloat(disassemblyCost) : null,
-        distancecost: distanceCost ? parseFloat(distanceCost) : null,
-        extrahelpercost: extraHelperCost ? parseFloat(extraHelperCost) : null,
-        studentdiscount: studentDiscount ? parseFloat(studentDiscount) : null,
-        firstlocation: firstlocation || null,
-        secondlocation: secondlocation || null,
-        firstlocation_coords: firstlocation_coords || null,
-        secondlocation_coords: secondlocation_coords || null,
-        calculated_distance_km: distanceKm,
-        photo_urls: photoUrls
-      };
-
-
-      console.log('💾 Inserting item moving request into database...');
-
-      const { data, error } = await supabase
-        .from('item_moving')
-        .insert([insertData])
-        .select();
-
-      if (error) {
-        console.error('❌ Database insert error:', error);
-        throw error;
-      }
-
-      console.log('✅ Item moving request saved successfully');
-      
-      // Send confirmation email
-      try {
-        const emailResult = await sendMovingRequestEmail({
-          customerEmail: contactInfo.email,
-          customerFirstName: contactInfo.firstName,
-          customerLastName: contactInfo.lastName,
-          serviceType: 'item-moving',
-          pickupLocation: firstlocation,
-          dropoffLocation: secondlocation,
-          selectedDateRange,
-          isDateFlexible,
-          estimatedPrice: estimatedPrice || 0,
-          orderSummary,
-          order_number: order_number,
-          distanceInfo: null
-        });
-        
-        if (emailResult.success) {
-          console.log('✅ Item moving confirmation email sent successfully');
-        } else {
-          console.error('❌ Failed to send item moving confirmation email:', emailResult.error);
-        }
-      } catch (emailError) {
-        console.error('❌ Error sending item moving confirmation email:', emailError);
-      }
-      
-      // Return response with distance data included
-      const response = {
-        ...data[0],
-        distanceCalculation: null
-      };
-
-      res.status(201).json(response);
-    } catch (error) {
-      console.error('❌ Error saving item moving request:', error);
-      res.status(500).json({ 
-        error: 'Failed to save moving request',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  });
-  
-// HOUSE Moving Request Endpoint with Distance Calculation and Photo Upload
-  app.post('/api/house-moving-requests', upload.array('photos', 10), async (req, res) => {
-    try {
-    // Parse the JSON data from FormData
-    const payload = JSON.parse(req.body.data);
-    
-    const {
-        order_number,
-        pickupType,
-        furnitureItems,
-        customItem,
-        floorPickup,
-        floorDropoff,
-        contactInfo,
-        estimatedPrice,
-        selectedDateRange,
-        isDateFlexible,
-        dateOption,
-        preferredTimeSpan,
-        extraInstructions,
-        elevatorPickup,
-        elevatorDropoff,
-        disassembly,
-        assembly,
-        extraHelper,
-        carryingService,
-        isStudent,
-        studentId,
-        storeProofPhoto,
-        disassemblyItems,
-        assemblyItems,
-        extraHelperItems,
-        carryingServiceItems,
-        basePrice,
-        itemPoints,
-        itemValue,
-        carryingCost,
-        disassemblyCost,
-        distanceCost,
-        extraHelperCost,
-        studentDiscount,
-        firstlocation,
-        secondlocation,
-        firstlocation_coords,
-        secondlocation_coords,
-        orderSummary,
-        distanceKm
-    } = payload;
-    
-    console.log('🏠 House Moving Request - Full Body:', req.body);
-    
-    // Handle date fields based on dateOption
-    let selecteddate_start = null;
-    let selecteddate_end = null;
-    let selecteddate = null;
-    let finalIsDateFlexible = Boolean(isDateFlexible);
-    
-    if (dateOption === 'rehome') {
-      // Let ReHome choose - all dates NULL, isdateflexible = true
-      selecteddate_start = null;
-      selecteddate_end = null;
-      selecteddate = null;
-      finalIsDateFlexible = true;
-    } else if (dateOption === 'flexible') {
-      // Flexible date range - use selectedDateRange
-      selecteddate_start = selectedDateRange?.start || null;
-      selecteddate_end = selectedDateRange?.end || null;
-      selecteddate = selectedDateRange?.start || null; // Legacy field
-      finalIsDateFlexible = true;
-    } else if (dateOption === 'fixed') {
-      // Fixed date - for house moving: single moving date (start only)
-      selecteddate_start = selectedDateRange?.start || null;
-      selecteddate_end = null; // House moving fixed date has no end date
-      selecteddate = selectedDateRange?.start || null; // Legacy field
-      finalIsDateFlexible = false;
-    }
-
-    // Process uploaded photos
-    let photoUrls = [];
-    if (req.files && req.files.length > 0) {
-      console.log('📸 Processing', req.files.length, 'uploaded photos for house moving request');
-      
-      for (const file of req.files) {
-        try {
-          // Convert image to web format and process with sharp
-          const conversionResult = await imageProcessingService.convertImageToWebFormat(
-            file.buffer,
-            file.originalname,
-            {
-              quality: 85,
-              maxWidth: 1920,
-              maxHeight: 1080,
-              removeMetadata: true
-            }
-          );
-          const optimizedImageBuffer = conversionResult.buffer;
-          
-          // Upload to Supabase storage (upload buffer directly - Node.js doesn't have File API)
-          const fileName = `house-moving/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
-          const { data: uploadData, error: uploadError } = await supabase.storage
-            .from('special-requests')
-            .upload(fileName, optimizedImageBuffer, {
-              contentType: 'image/jpeg',
-              cacheControl: '3600',
-              upsert: false
-            });
-          
-          if (uploadError) {
-            console.error('❌ Photo upload error:', uploadError);
-            continue; // Skip this photo but continue with others
-          }
-          
-          // Get the public URL
-          const { data: { publicUrl } } = supabase.storage
-            .from('special-requests')
-            .getPublicUrl(fileName);
-          
-          photoUrls.push(publicUrl);
-          console.log('✅ Photo uploaded successfully:', publicUrl);
-        } catch (photoError) {
-          console.error('❌ Error processing photo:', photoError);
-          continue; // Skip this photo but continue with others
-        }
-      }
-    }
-
-    console.log('📦 House first and second location Request - Full Body:', firstlocation, secondlocation);
-    // Prepare data for database insertion
-    const insertData = {
-      order_number: order_number || null,
-      email: contactInfo.email,
-      pickuptype: pickupType || null,
-      furnitureitems: furnitureItems || null,
-      customitem: customItem || null,
-      floorpickup: floorPickup ? parseInt(floorPickup, 10) : 0,
-      floordropoff: floorDropoff ? parseInt(floorDropoff, 10) : 0,
-      firstname: contactInfo.firstName,
-      lastname: contactInfo.lastName,
-      phone: contactInfo.phone || null,
-      estimatedprice: estimatedPrice ? parseFloat(estimatedPrice) : 0,
-      selecteddate: selecteddate,
-      selecteddate_start: selecteddate_start,
-      selecteddate_end: selecteddate_end,
-      isdateflexible: finalIsDateFlexible,
-      date_option: dateOption || 'fixed',
-      preferred_time_span: preferredTimeSpan || null,
-      preferredtimespan: preferredTimeSpan || null,
-      extra_instructions: extraInstructions || null,
-      elevator_pickup: elevatorPickup || false,
-      elevator_dropoff: elevatorDropoff || false,
-      disassembly: disassembly || false,
-      assembly: assembly || false,
-      extra_helper: extraHelper || false,
-      carrying_service: carryingService || false,
-      is_student: isStudent || false,
-      student_id: studentId ? studentId.name : null,
-      store_proof_photo: storeProofPhoto ? storeProofPhoto.name : null,
-      disassembly_items: disassemblyItems || null,
-      assembly_items: assemblyItems || null,
-      extra_helper_items: extraHelperItems || null,
-      carrying_service_items: carryingServiceItems || null,
-      baseprice: basePrice ? parseFloat(basePrice) : null,
-      itempoints: itemPoints ? parseInt(itemPoints, 10) : null,
-      itemvalue: itemValue ? parseFloat(itemValue) : null,
-      carryingcost: carryingCost ? parseFloat(carryingCost) : null,
-      disassemblycost: disassemblyCost ? parseFloat(disassemblyCost) : null,
-      distancecost: distanceCost ? parseFloat(distanceCost) : null,
-      extrahelpercost: extraHelperCost ? parseFloat(extraHelperCost) : null,
-      studentdiscount: studentDiscount ? parseFloat(studentDiscount) : null,
-      firstlocation: firstlocation || null,
-      secondlocation: secondlocation || null,
-      firstlocation_coords: firstlocation_coords || null,
-      secondlocation_coords: secondlocation_coords || null,
-      calculated_distance_km: distanceKm,
-      photo_urls: photoUrls
-    };
-     
-
-    const { data, error } = await supabase
-        .from('house_moving')
-        .insert([insertData])
-        .select();
-
-    if (error) {
-      console.error('❌ Database insert error:', error);
-      throw error;
-    }
-
-    console.log('✅ House moving request saved successfully');
-
-    // Send confirmation email
-    try {
-      const distanceInfo = (typeof insertData.calculated_distance_km === 'number' && !isNaN(insertData.calculated_distance_km)) ? {
-        distance: `${insertData.calculated_distance_km} km`,
-        duration: null // Duration not available from frontend
-      } : null;
-      const emailResult = await sendMovingRequestEmail({
-        customerEmail: contactInfo.email,
-        customerFirstName: contactInfo.firstName,
-        customerLastName: contactInfo.lastName,
-        serviceType: 'house-moving',
-        pickupLocation: firstlocation,
-        dropoffLocation: secondlocation,
-        selectedDateRange,
-        isDateFlexible,
-        estimatedPrice: estimatedPrice || 0,
-        orderSummary,
-        order_number: order_number,
-        distanceInfo
-      });
-      
-      if (emailResult.success) {
-        console.log('✅ House moving confirmation email sent successfully');
-      } else {
-        console.error('❌ Failed to send house moving confirmation email:', emailResult.error);
-      }
-    } catch (emailError) {
-      console.error('❌ Error sending house moving confirmation email:', emailError);
-    }
-
-    // Return response with distance data included
-    const response = {
-      ...data[0],
-      distanceCalculation: (typeof insertData.calculated_distance_km === 'number' && !isNaN(insertData.calculated_distance_km)) ? {
-        success: true,
-        distance: `${insertData.calculated_distance_km} km`,
-        duration: null,
-        provider: 'frontend'
-      } : null
-    };
-
-    res.status(201).json(response);
-    } catch (error) {
-    console.error('❌ Error saving house moving request:', error);
-    res.status(500).json({ 
-      error: 'Failed to save moving request',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-    }
-    });
-
-
-
-
 // 2. Add a new furniture item
 app.post('/api/furniture', async (req, res) => {
     const { name, description, image_url, price } = req.body;
@@ -2168,13 +1684,9 @@ app.post('/api/special-requests', (req, res, next) => {
     if (req.files && req.files.length > 0) {
       console.log(`📸 Processing ${req.files.length} photos for special request...`);
       
-      // Check if special-requests bucket exists
-      const { data: bucketData, error: bucketError } = await supabaseClient.storage.getBucket('special-requests');
-      
-      if (bucketError) {
-        console.error('Special requests bucket error:', bucketError);
-        return res.status(500).json({ error: 'Storage bucket not accessible', details: bucketError });
-      }
+      // Use existing transport-images bucket with special-requests/ subfolder
+      const BUCKET_NAME = 'transport-images';
+      console.log(`📁 Using ${BUCKET_NAME} bucket for special request photos`);
 
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
@@ -2303,9 +1815,10 @@ app.post('/api/special-requests', (req, res, next) => {
           // Upload the processed image
           console.log(`📤 Uploading: ${finalFilename} (${finalBuffer.length} bytes)`);
           
+          const uploadPath = `special-requests/${finalFilename}`;
           const { data: uploadData, error: uploadError } = await supabaseClient.storage
-            .from('special-requests')
-            .upload(finalFilename, finalBuffer, {
+            .from(BUCKET_NAME)
+            .upload(uploadPath, finalBuffer, {
               contentType: finalMimeType
             });
 
@@ -2315,7 +1828,7 @@ app.post('/api/special-requests', (req, res, next) => {
           }
           
           console.log('📸 Upload successful:', uploadData);
-          const imageUrl = `${SUPABASE_URL}/storage/v1/object/public/special-requests/${finalFilename}`;
+          const imageUrl = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET_NAME}/special-requests/${finalFilename}`;
           console.log('📸 Generated image URL:', imageUrl);
           photoUrls.push(imageUrl);
 
@@ -2334,10 +1847,48 @@ app.post('/api/special-requests', (req, res, next) => {
     }
 
     console.log('💾 Inserting special request into database...');
+    
+    // Map insertData to special_requests table structure
+    const specialRequestData = {
+      request_type: selectedService === 'fullInternationalMove' ? 'international_move' : 
+                    selectedService === 'junkRemoval' ? 'junk_removal' : 
+                    selectedService === 'storage' ? 'item_storage' : selectedService,
+      customer_name: customerName,
+      email: email,
+      phone: phone,
+      pickup_country: fields.pickupCountry || 'The Netherlands',
+      pickup_postal: fields.pickupPostal || '',
+      pickup_house_number: fields.pickupHouseNumber || '',
+      pickup_addition: fields.pickupAddition || '',
+      pickup_city: fields.pickupCity || '',
+      pickup_street: fields.pickupStreet || '',
+      pickup_floor: insertData.pickup_floor || parseInt(fields.pickupFloor) || 0,
+      pickup_elevator: insertData.pickup_elevator === 'yes' || fields.pickupElevator === 'yes',
+      pickup_address: insertData.pickup_location || fields.pickupAddress || '',
+      dropoff_country: fields.dropoffCountry || '',
+      dropoff_postal: fields.dropoffPostal || '',
+      dropoff_house_number: fields.dropoffHouseNumber || '',
+      dropoff_addition: fields.dropoffAddition || '',
+      dropoff_city: fields.dropoffCity || '',
+      dropoff_street: fields.dropoffStreet || '',
+      dropoff_floor: insertData.dropoff_floor || parseInt(fields.dropoffFloor) || 0,
+      dropoff_elevator: insertData.dropoff_elevator === 'yes' || fields.dropoffElevator === 'yes',
+      dropoff_address: insertData.dropoff_location || fields.dropoffAddress || '',
+      move_date_type: fields.moveDateType || fields.moveDate || 'specific',
+      specific_date_start: fields.specificDate ? (Array.isArray(fields.specificDate) ? fields.specificDate[0] : fields.specificDate) : null,
+      specific_date_end: fields.specificDate ? (Array.isArray(fields.specificDate) ? fields.specificDate[1] : null) : null,
+      item_description: fields.itemDescription || fields.message || insertData.message || '',
+      selected_services: fields.selectedServices || fields.services || insertData.selected_services || [],
+      storage_duration_months: parseInt(fields.storageDuration) || null,
+      delivery_needed: fields.deliveryOption === 'delivery' || false,
+      junk_volume: fields.junkVolume || null,
+      photo_urls: photoUrls.length > 0 ? photoUrls : null,
+      status: 'pending'
+    };
 
     const { data, error } = await supabase
-      .from('services')
-      .insert([insertData])
+      .from('special_requests')
+      .insert([specialRequestData])
       .select();
 
     if (error) {
@@ -4717,108 +4268,15 @@ app.get('/api/locations/autocomplete', async (req, res) => {
     const query = q.toLowerCase().trim();
     console.log('🔍 Location autocomplete query:', query);
     
-    // Comprehensive Dutch cities database with coordinates
-    const dutchCitiesDatabase = {
-      // Major cities
-      'amsterdam': { lat: 52.3676, lon: 4.9041, postcode: '1000' },
-      'rotterdam': { lat: 51.9225, lon: 4.4792, postcode: '3000' },
-      'den haag': { lat: 52.0705, lon: 4.3007, postcode: '2500' },
-      'the hague': { lat: 52.0705, lon: 4.3007, postcode: '2500' },
-      'utrecht': { lat: 52.0907, lon: 5.1214, postcode: '3500' },
-      'eindhoven': { lat: 51.4416, lon: 5.4697, postcode: '5600' },
-      'tilburg': { lat: 51.5555, lon: 5.0913, postcode: '5000' },
-      'groningen': { lat: 53.2194, lon: 6.5665, postcode: '9700' },
-      'almere': { lat: 52.3508, lon: 5.2647, postcode: '1300' },
-      'breda': { lat: 51.5719, lon: 4.7683, postcode: '4800' },
-      'nijmegen': { lat: 51.8426, lon: 5.8518, postcode: '6500' },
-      'enschede': { lat: 52.2232, lon: 6.8937, postcode: '7500' },
-      'haarlem': { lat: 52.3874, lon: 4.6462, postcode: '2000' },
-      'arnhem': { lat: 51.9851, lon: 5.8987, postcode: '6800' },
-      'zaanstad': { lat: 52.4389, lon: 4.8167, postcode: '1500' },
-      'amersfoort': { lat: 52.1561, lon: 5.3878, postcode: '3800' },
-      'apeldoorn': { lat: 52.2112, lon: 5.9699, postcode: '7300' },
-      'hoofddorp': { lat: 52.3030, lon: 4.6890, postcode: '2130' },
-      'maastricht': { lat: 50.8514, lon: 5.6910, postcode: '6200' },
-      'leiden': { lat: 52.1601, lon: 4.4970, postcode: '2300' },
-      'dordrecht': { lat: 51.8133, lon: 4.6901, postcode: '3300' },
-      'zoetermeer': { lat: 52.0575, lon: 4.4935, postcode: '2700' },
-      'zwolle': { lat: 52.5168, lon: 6.0830, postcode: '8000' },
-      'deventer': { lat: 52.2551, lon: 6.1639, postcode: '7400' },
-      'delft': { lat: 52.0116, lon: 4.3571, postcode: '2600' },
-      'alkmaar': { lat: 52.6318, lon: 4.7483, postcode: '1800' },
-      'leeuwarden': { lat: 53.2012, lon: 5.8086, postcode: '8900' },
-      'venlo': { lat: 51.3704, lon: 6.1724, postcode: '5900' },
-      'oss': { lat: 51.7649, lon: 5.5178, postcode: '5340' },
-      'roosendaal': { lat: 51.5308, lon: 4.4653, postcode: '4700' },
-      'emmen': { lat: 52.7795, lon: 6.9093, postcode: '7800' },
-      'hilversum': { lat: 52.2242, lon: 5.1758, postcode: '1200' },
-      'kampen': { lat: 52.5551, lon: 5.9114, postcode: '8260' },
-      'helmond': { lat: 51.4816, lon: 5.6611, postcode: '5700' },
-      'gouda': { lat: 52.0115, lon: 4.7077, postcode: '2800' },
-      'purmerend': { lat: 52.5050, lon: 4.9592, postcode: '1440' },
-      'vlaardingen': { lat: 51.9128, lon: 4.3418, postcode: '3130' },
-      'alphen aan den rijn': { lat: 52.1265, lon: 4.6575, postcode: '2400' },
-      'spijkenisse': { lat: 51.8447, lon: 4.3298, postcode: '3200' },
-      'hoorn': { lat: 52.6425, lon: 5.0597, postcode: '1620' },
-      'ede': { lat: 52.0341, lon: 5.6580, postcode: '6710' },
-      'leidschendam': { lat: 52.0894, lon: 4.3890, postcode: '2260' },
-      'woerden': { lat: 52.0852, lon: 4.8836, postcode: '3440' },
-      'schiedam': { lat: 51.9192, lon: 4.3886, postcode: '3100' },
-      'lelystad': { lat: 52.5084, lon: 5.4750, postcode: '8200' },
-      'tiel': { lat: 51.8861, lon: 5.4306, postcode: '4000' },
-      'barneveld': { lat: 52.1386, lon: 5.5914, postcode: '3770' },
-      'veenendaal': { lat: 52.0287, lon: 5.5636, postcode: '3900' },
-      'doetinchem': { lat: 51.9648, lon: 6.2886, postcode: '7000' },
-      'almelo': { lat: 52.3507, lon: 6.6678, postcode: '7600' },
-      'nieuwegein': { lat: 52.0209, lon: 5.0937, postcode: '3430' },
-      'zeist': { lat: 52.0889, lon: 5.2317, postcode: '3700' },
-      's-hertogenbosch': { lat: 51.6906, lon: 5.2936, postcode: '5200' },
-      'den bosch': { lat: 51.6906, lon: 5.2936, postcode: '5200' }
-    };
-    
     let suggestions = [];
     
-    // 1. Get cities from database (marketplace furniture cities)
+    // 1. Get cities from city_base_charges table (SINGLE SOURCE OF TRUTH)
+    // This table now contains coordinates (latitude, longitude)
     try {
-      console.log('🔄 Searching database cities...');
-      const { data: dbCities, error: dbError } = await supabaseClient
-        .from('marketplace_furniture')
-        .select('city_name')
-        .ilike('city_name', `%${query}%`)
-        .limit(parseInt(limit));
-      
-      if (!dbError && dbCities) {
-        const uniqueDbCities = [...new Set(dbCities.map(item => item.city_name))];
-        console.log('📋 Found database cities:', uniqueDbCities.length);
-        
-        suggestions.push(...uniqueDbCities.map(city => {
-          const cityKey = city.toLowerCase();
-          const coords = dutchCitiesDatabase[cityKey] || { lat: 52.1, lon: 5.1, postcode: '0000' };
-          
-          return {
-            display_name: `${city}, Netherlands`,
-            lat: coords.lat.toString(),
-            lon: coords.lon.toString(),
-            place_id: `db_${cityKey}`,
-            address: {
-              city: city,
-              postcode: coords.postcode,
-              country: 'Netherlands'
-            },
-            source: 'database'
-          };
-        }));
-      }
-    } catch (dbError) {
-      console.log('⚠️ Database city search failed:', dbError.message);
-    }
-    
-    // 2. Get cities from pricing database
-    try {
-      console.log('🔄 Searching pricing cities...');
+      console.log('🔄 Searching pricing cities with coordinates...');
       const { data: pricingCities, error: pricingError } = await supabaseClient
         .from('city_base_charges')
-        .select('city_name')
+        .select('city_name, latitude, longitude')
         .ilike('city_name', `%${query}%`)
         .limit(parseInt(limit));
       
@@ -4826,18 +4284,13 @@ app.get('/api/locations/autocomplete', async (req, res) => {
         console.log('📋 Found pricing cities:', pricingCities.length);
         
         suggestions.push(...pricingCities.map(item => {
-          const city = item.city_name;
-          const cityKey = city.toLowerCase();
-          const coords = dutchCitiesDatabase[cityKey] || { lat: 52.1, lon: 5.1, postcode: '0000' };
-          
           return {
-            display_name: `${city}, Netherlands`,
-            lat: coords.lat.toString(),
-            lon: coords.lon.toString(),
-            place_id: `pricing_${cityKey}`,
+            display_name: `${item.city_name}, Netherlands`,
+            lat: (item.latitude || 52.1).toString(),
+            lon: (item.longitude || 5.1).toString(),
+            place_id: `pricing_${item.city_name.toLowerCase()}`,
             address: {
-              city: city,
-              postcode: coords.postcode,
+              city: item.city_name,
               country: 'Netherlands'
             },
             source: 'pricing'
@@ -4848,40 +4301,50 @@ app.get('/api/locations/autocomplete', async (req, res) => {
       console.log('⚠️ Pricing city search failed:', pricingError.message);
     }
     
-    // 3. Search hardcoded Dutch cities database
-    console.log('🔄 Searching hardcoded cities...');
-    const hardcodedMatches = Object.entries(dutchCitiesDatabase)
-      .filter(([cityKey, coords]) => 
-        cityKey.includes(query) || 
-        cityKey.startsWith(query)
-      )
-      .sort(([a], [b]) => {
-        // Prioritize starts-with matches
-        const aStarts = a.startsWith(query);
-        const bStarts = b.startsWith(query);
-        if (aStarts && !bStarts) return -1;
-        if (!aStarts && bStarts) return 1;
-        return a.length - b.length; // Then sort by length
-      })
-      .slice(0, parseInt(limit))
-      .map(([cityKey, coords]) => {
-        const cityName = cityKey.charAt(0).toUpperCase() + cityKey.slice(1);
-        return {
-          display_name: `${cityName}, Netherlands`,
-          lat: coords.lat.toString(),
-          lon: coords.lon.toString(),
-          place_id: `hardcoded_${cityKey}`,
-          address: {
-            city: cityName,
-            postcode: coords.postcode,
-            country: 'Netherlands'
-          },
-          source: 'hardcoded'
-        };
-      });
-    
-    suggestions.push(...hardcodedMatches);
-    console.log('📋 Found hardcoded cities:', hardcodedMatches.length);
+    // 2. Get cities from marketplace furniture (for additional coverage)
+    try {
+      console.log('🔄 Searching marketplace cities...');
+      const { data: dbCities, error: dbError } = await supabaseClient
+        .from('marketplace_furniture')
+        .select('city_name')
+        .ilike('city_name', `%${query}%`)
+        .limit(parseInt(limit));
+      
+      if (!dbError && dbCities) {
+        const uniqueDbCities = [...new Set(dbCities.map(item => item.city_name))];
+        console.log('📋 Found marketplace cities:', uniqueDbCities.length);
+        
+        // For marketplace cities, try to find coordinates from city_base_charges
+        for (const city of uniqueDbCities) {
+          // Skip if already in suggestions
+          if (suggestions.some(s => s.address.city.toLowerCase() === city.toLowerCase())) {
+            continue;
+          }
+          
+          // Try to get coordinates from city_base_charges
+          const { data: coordData } = await supabaseClient
+            .from('city_base_charges')
+            .select('latitude, longitude')
+            .ilike('city_name', city)
+            .limit(1)
+            .single();
+          
+          suggestions.push({
+            display_name: `${city}, Netherlands`,
+            lat: (coordData?.latitude || 52.1).toString(),
+            lon: (coordData?.longitude || 5.1).toString(),
+            place_id: `db_${city.toLowerCase()}`,
+            address: {
+              city: city,
+              country: 'Netherlands'
+            },
+            source: 'database'
+          });
+        }
+      }
+    } catch (dbError) {
+      console.log('⚠️ Database city search failed:', dbError.message);
+    }
     
     // 4. Remove duplicates and prioritize
     const seen = new Set();
@@ -5754,9 +5217,7 @@ app.delete('/api/admin/marketplace-item-details/:id', authenticateAdmin, async (
 
 // Get dynamic pricing multipliers based on marketplace item details
 app.get('/api/marketplace-pricing-multipliers', async (req, res) => {
-  try {
-    console.log('💰 Fetching marketplace pricing multipliers...');
-    
+  try {    
     // Get all marketplace item details to calculate multipliers
     const { data: itemDetails, error: itemError } = await supabaseClient
       .from('marketplace_item_details')
@@ -5814,8 +5275,6 @@ app.get('/api/marketplace-pricing-multipliers', async (req, res) => {
         threshold: Math.ceil(avgPoints) // Threshold for high points category
       }
     };
-
-    console.log('✅ Marketplace pricing multipliers calculated successfully');
     res.json({
       success: true,
       data: multipliers,
@@ -5840,9 +5299,7 @@ app.get('/api/marketplace-pricing-multipliers', async (req, res) => {
 
 // Store sales history after checkout completion
 app.post('/api/sales-history', async (req, res) => {
-  try {
-    console.log('💰 Storing sales history:', req.body);
-    
+  try {    
     const {
       orderId,
       customerEmail,
@@ -5873,14 +5330,6 @@ app.post('/api/sales-history', async (req, res) => {
       currency,
       notes
     } = req.body;
-
-    // Validate required fields
-    if (!orderId || !customerEmail || !itemName || !itemPrice || !finalTotal) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: orderId, customerEmail, itemName, itemPrice, finalTotal'
-      });
-    }
 
     const salesData = {
       order_id: orderId,
@@ -5915,8 +5364,6 @@ app.post('/api/sales-history', async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    console.log('💰 Inserting sales history data:', salesData);
-
     const { data, error } = await supabase
       .from('sales_history')
       .insert([salesData])
@@ -5931,7 +5378,6 @@ app.post('/api/sales-history', async (req, res) => {
       });
     }
 
-    console.log('✅ Sales history stored successfully:', data[0]);
     res.status(201).json({
       success: true,
       data: data[0],
@@ -5950,9 +5396,7 @@ app.post('/api/sales-history', async (req, res) => {
 
 // Get sales history (admin endpoint)
 app.get('/api/admin/sales-history', authenticateAdmin, async (req, res) => {
-  try {
-    console.log('📊 Admin fetching sales history...');
-    
+  try {    
     const { page = 1, limit = 50, search, startDate, endDate, category } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
@@ -6001,7 +5445,6 @@ app.get('/api/admin/sales-history', authenticateAdmin, async (req, res) => {
       });
     }
 
-    console.log('✅ Sales history fetched successfully:', data.length, 'records');
     res.json({
       success: true,
       data: data || [],
@@ -6027,9 +5470,7 @@ app.get('/api/admin/sales-history', authenticateAdmin, async (req, res) => {
 
 // Get sales statistics (admin endpoint)
 app.get('/api/admin/sales-statistics', authenticateAdmin, async (req, res) => {
-  try {
-    console.log('📊 Admin fetching sales statistics...');
-    
+  try {    
     const { startDate, endDate } = req.query;
     
     let query = supabase
@@ -6101,7 +5542,6 @@ app.get('/api/admin/sales-statistics', authenticateAdmin, async (req, res) => {
       })).sort((a, b) => a.date.localeCompare(b.date))
     };
 
-    console.log('✅ Sales statistics calculated successfully');
     res.json({
       success: true,
       data: statistics,
@@ -6122,27 +5562,20 @@ app.get('/api/admin/sales-statistics', authenticateAdmin, async (req, res) => {
 
 export default app;
 
-// Start the server only when running this file directly (for local development)
 if (process.env.NODE_ENV !== 'production') {
     const port = process.env.PORT || 3000;
     
-    // Create HTTP server with generous timeout settings
     const server = http.createServer(app);
     
-    // Set server timeouts to handle long image processing operations
     server.keepAliveTimeout = 300000; // 5 minutes
     server.headersTimeout = 310000; // Slightly longer than keepAliveTimeout
     server.requestTimeout = 300000; // 5 minutes
     
     server.listen(port, async () => {
         console.log(`Server listening on port ${port}`);
-        console.log(`Server timeouts configured: keepAlive=5min, headers=5.17min, request=5min`);
         
-        // Warm up cache on server start
         try {
-            console.log('🔥 Warming up cache...');
             await warmUpCache();
-            console.log('✅ Cache warmed up successfully');
         } catch (error) {
             console.error('❌ Failed to warm up cache:', error);
         }
