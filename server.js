@@ -270,6 +270,7 @@ import rehomeOrdersRoutes from './api/rehome-orders.js';
 import transportRoutes from './api/transport.js';
 import pricingRoutes from './api/pricing.js';
 import marketplaceRoutes from './api/marketplace.js';
+import calendarPricingRoutes from './api/calendar-pricing.js';
 
 // --------------------  Application Routes --------------------
 
@@ -288,6 +289,7 @@ app.use('/api/rehome-orders', rehomeOrdersRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/transport', transportRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
+app.use('/api/calendar-pricing', calendarPricingRoutes);
 
 // --------------------  Authentication Routes --------------------
 // Auth

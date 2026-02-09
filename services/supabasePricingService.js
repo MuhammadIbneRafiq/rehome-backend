@@ -6,6 +6,13 @@ import {
   isDateBlockedCached
 } from './cacheService.js';
 import { calculateDistanceFromLocations } from './googleMapsService.js';
+import {
+  calculateHouseMovingFixedPrice,
+  calculateItemTransportSameDatePrice,
+  calculateItemTransportDiffDatesPrice,
+  calculateFlexiblePrice,
+  calculateRehomePrice
+} from './pricing/basePriceCalculator.js';
 
 // Use shared Supabase client
 const supabase = supabaseClient;
@@ -279,68 +286,48 @@ class SupabasePricingService {
 
     const isItemTransport = input.serviceType === 'item-transport' || input.serviceType === 'item_transport';
     const isHouseMoving = input.serviceType === 'house-moving' || input.serviceType === 'house_moving';
+    const isIntercity = pickupCity !== dropoffCity;
 
-    let finalCharge = 0;
-    let chargeType = '';
-    let isCheapRate = false;
+    const rateParams = {
+      isIntercity,
+      pickupCheap: pickupRates.cityDay,
+      pickupStandard: pickupRates.normal,
+      dropoffCheap: dropoffRates.cityDay,
+      dropoffStandard: dropoffRates.normal
+    };
+
+    let result; // { price, type }
 
     // ReHome can suggest option - always cheapest
     if (input.isDateFlexible) {
-      finalCharge = pickupRates.cityDay;
-      isCheapRate = true;
-      chargeType = 'ReHome Choose - Cheapest Rate';
+      result = calculateRehomePrice({ pickupCheap: pickupRates.cityDay });
     } else if (!input.isDateFlexible && input.selectedDateRange?.start && input.selectedDateRange?.end) {
       // Flexible date range
       const startDate = new Date(input.selectedDateRange.start);
       const endDate = new Date(input.selectedDateRange.end);
       const rangeDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
-      if (rangeDays > 7) {
-        // Above one week - display cheap base charge for pickup city
-        finalCharge = pickupRates.cityDay;
-        isCheapRate = true;
-        chargeType = 'Flexible Range >7 days - City Day Rate';
-      } else {
-        // Below one week - check if cities are included in calendar
-        const cityDays = await getCityDaysInRangeCached(
-          pickupCity,
-          input.selectedDateRange.start,
-          input.selectedDateRange.end
-        );
-        const hasCityDaysInRange = (cityDays || []).length > 0;
+      // Check if cities are included in calendar within range
+      const cityDays = rangeDays <= 7 ? await getCityDaysInRangeCached(
+        pickupCity, input.selectedDateRange.start, input.selectedDateRange.end
+      ) : [];
+      const pickupAvailable = (cityDays || []).length > 0;
 
-        if (pickupCity === dropoffCity) {
-          // Within city
-          if (hasCityDaysInRange) {
-            finalCharge = pickupRates.cityDay;
-            isCheapRate = true;
-            chargeType = 'Flexible Range - City Available';
-          } else {
-            // Not available (even if empty date in range)
-            finalCharge = pickupRates.normal;
-            chargeType = 'Flexible Range - City Not Available';
-          }
-        } else {
-          // Between cities
-          const dropoffCityDays = await getCityDaysInRangeCached(
-            dropoffCity,
-            input.selectedDateRange.start,
-            input.selectedDateRange.end
-          );
-          const hasDropoffCityDaysInRange = (dropoffCityDays || []).length > 0;
-          
-          if (hasCityDaysInRange && hasDropoffCityDaysInRange) {
-            // Both cities included on same date within range
-            finalCharge = (pickupRates.cityDay + dropoffRates.cityDay) / 2;
-            isCheapRate = true;
-            chargeType = 'Flexible Range - Both Cities Available';
-          } else {
-            // Not both available - use standard charge for pickup city
-            finalCharge = pickupRates.normal;
-            chargeType = 'Flexible Range - Standard Rate';
-          }
-        }
+      let bothSameDate = false;
+      if (isIntercity && rangeDays <= 7 && pickupAvailable) {
+        const dropoffCityDays = await getCityDaysInRangeCached(
+          dropoffCity, input.selectedDateRange.start, input.selectedDateRange.end
+        );
+        bothSameDate = pickupAvailable && (dropoffCityDays || []).length > 0;
       }
+
+      result = calculateFlexiblePrice({
+        ...rateParams,
+        rangeDays,
+        pickupAvailableInRange: pickupAvailable,
+        dropoffAvailableInRange: bothSameDate,
+        bothAvailableSameDate: bothSameDate
+      });
     } else {
       if (isItemTransport && input.pickupDate && input.dropoffDate) {
         const [pickupBlocked, dropoffBlocked] = await Promise.all([
@@ -354,13 +341,29 @@ class SupabasePricingService {
           throw new Error('Dropoff date is blocked and unavailable for booking');
         }
 
-        [finalCharge, chargeType, isCheapRate] = await this.calculateIntercityItemTransportCharge(
-          input,
-          pickupCity,
-          dropoffCity,
-          pickupRates,
-          dropoffRates
-        );
+        const isSameDate = input.pickupDate === input.dropoffDate;
+        const [pickupStatus, dropoffStatus] = await Promise.all([
+          getCityScheduleStatusCached(pickupCity, input.pickupDate),
+          getCityScheduleStatusCached(isIntercity ? dropoffCity : pickupCity, input.dropoffDate)
+        ]);
+
+        if (isSameDate) {
+          result = calculateItemTransportSameDatePrice({
+            ...rateParams,
+            pickupScheduled: !!pickupStatus?.isScheduled,
+            dropoffScheduled: !!dropoffStatus?.isScheduled,
+            isEmpty: !!pickupStatus?.isEmpty,
+            isBlocked: false
+          });
+        } else {
+          result = calculateItemTransportDiffDatesPrice({
+            ...rateParams,
+            pickupScheduledOnPickupDate: !!pickupStatus?.isScheduled,
+            dropoffScheduledOnDropoffDate: !!dropoffStatus?.isScheduled,
+            pickupDateEmpty: !!pickupStatus?.isEmpty,
+            dropoffDateEmpty: !!dropoffStatus?.isEmpty
+          });
+        }
       } else if (isHouseMoving && selectedDate) {
         const [pickupBlocked, dropoffBlocked] = await Promise.all([
           isDateBlockedCached(selectedDate, pickupCity),
@@ -375,58 +378,21 @@ class SupabasePricingService {
           getCityScheduleStatusCached(dropoffCity, selectedDate)
         ]);
 
-        const isIncludedPickup = !!pickupStatus?.isScheduled;
-        const isIncludedDropoff = !!dropoffStatus?.isScheduled;
-        const isEmpty = !!pickupStatus?.isEmpty && !!dropoffStatus?.isEmpty;
-        const isSameCity = pickupCity === dropoffCity;
-
-        // House Moving Fixed Date logic
-        if (isSameCity) {
-          // Within City
-          if (isIncludedPickup) {
-            // City included in calendar on that date
-            finalCharge = pickupRates.cityDay;
-            isCheapRate = true;
-            chargeType = 'City Day Rate - Scheduled';
-          } else if (isEmpty) {
-            // Empty day = 75% of standard charge
-            finalCharge = pickupRates.normal * 0.75;
-            chargeType = 'Empty Day - 75% Standard';
-          } else {
-            // City not included in calendar
-            finalCharge = pickupRates.normal;
-            chargeType = 'Standard Rate';
-          }
-        } else {
-          // Between Cities
-          if (isIncludedPickup && isIncludedDropoff) {
-            // Both cities included
-            finalCharge = (pickupRates.cityDay + dropoffRates.cityDay) / 2;
-            isCheapRate = true;
-            chargeType = 'Intercity - Both Scheduled';
-          } else if (isIncludedPickup && !isIncludedDropoff) {
-            // Only pickup included
-            finalCharge = (pickupRates.cityDay + dropoffRates.normal) / 2;
-            chargeType = 'Intercity - Pickup Scheduled';
-          } else if (!isIncludedPickup && isIncludedDropoff) {
-            // Only dropoff included  
-            finalCharge = (pickupRates.normal + dropoffRates.cityDay) / 2;
-            chargeType = 'Intercity - Dropoff Scheduled';
-          } else if (isEmpty) {
-            // Empty day = 75% of higher standard charge
-            finalCharge = Math.max(pickupRates.normal, dropoffRates.normal) * 0.75;
-            chargeType = 'Intercity Empty Day - 75% Higher Standard';
-          } else {
-            // None included - use higher standard base charge
-            finalCharge = Math.max(pickupRates.normal, dropoffRates.normal);
-            chargeType = 'Intercity - Higher Standard Rate';
-          }
-        }
+        result = calculateHouseMovingFixedPrice({
+          ...rateParams,
+          pickupScheduled: !!pickupStatus?.isScheduled,
+          dropoffScheduled: !!dropoffStatus?.isScheduled,
+          isEmpty: !!pickupStatus?.isEmpty && !!dropoffStatus?.isEmpty,
+          isBlocked: false
+        });
       } else {
-        finalCharge = pickupRates.normal;
-        chargeType = 'Standard Rate';
+        result = { price: pickupRates.normal, type: 'Standard Rate' };
       }
     }
+
+    const finalCharge = result.price;
+    const chargeType = result.type;
+    const isCheapRate = chargeType.toLowerCase().includes('cheap') || chargeType.toLowerCase().includes('scheduled') || chargeType.toLowerCase().includes('city day') || chargeType.toLowerCase().includes('rehome');
 
     return {
       city: pickupCity,
@@ -435,108 +401,6 @@ class SupabasePricingService {
       finalPrice: finalCharge,
       type: chargeType
     };
-  }
-
-  async calculateIntercityItemTransportCharge(input, pickupCity, dropoffCity, pickupRates, dropoffRates) {
-    const [pickupStatus, dropoffStatus] = await Promise.all([
-      getCityScheduleStatusCached(pickupCity, input.pickupDate),
-      getCityScheduleStatusCached(dropoffCity, input.dropoffDate)
-    ]);
-
-    const isEmptyPickup = !!pickupStatus?.isEmpty;
-    const isEmptyDropoff = !!dropoffStatus?.isEmpty;
-    const isIncludedPickup = !!pickupStatus?.isScheduled;
-    const isIncludedDropoff = !!dropoffStatus?.isScheduled;
-
-    const isSameDate = input.pickupDate === input.dropoffDate;
-    const isSameCity = pickupCity === dropoffCity;
-
-    let baseCharge = 0;
-    let chargeType = '';
-    let isCheapRate = false;
-
-    // Item Transport Fixed Date logic
-    if (isSameCity && isSameDate) {
-      // Within city, same date
-      if (isIncludedPickup) {
-        baseCharge = pickupRates.cityDay;
-        chargeType = 'Same City/Date - Scheduled';
-        isCheapRate = true;
-      } else if (isEmptyPickup) {
-        // Empty day = 75% of standard charge
-        baseCharge = pickupRates.normal * 0.75;
-        chargeType = 'Same City/Date - Empty (75%)';
-      } else {
-        baseCharge = pickupRates.normal;
-        chargeType = 'Same City/Date - Standard';
-      }
-    } else if (isSameCity && !isSameDate) {
-      // Within city, different dates
-      if (isIncludedPickup && isIncludedDropoff) {
-        // Both dates included
-        baseCharge = pickupRates.cityDay;
-        chargeType = 'Same City/Diff Dates - Both Scheduled';
-        isCheapRate = true;
-      } else if ((isIncludedPickup || isIncludedDropoff) && !(isIncludedPickup && isIncludedDropoff)) {
-        // Only one date included (regardless of other being empty or not)
-        baseCharge = (pickupRates.cityDay + pickupRates.normal) / 2;
-        chargeType = 'Same City/Diff Dates - One Scheduled';
-      } else if (isEmptyPickup && isEmptyDropoff) {
-        // Both dates empty = 75% of standard
-        baseCharge = pickupRates.normal * 0.75;
-        chargeType = 'Same City/Diff Dates - Both Empty (75%)';
-      } else {
-        // Neither included
-        baseCharge = pickupRates.normal;
-        chargeType = 'Same City/Diff Dates - Standard';
-      }
-    } else if (!isSameCity && isSameDate) {
-      // Between cities, same date
-      if (isIncludedPickup && isIncludedDropoff) {
-        // Both cities included
-        baseCharge = (pickupRates.cityDay + dropoffRates.cityDay) / 2;
-        chargeType = 'Intercity/Same Date - Both Scheduled';
-        isCheapRate = true;
-      } else if ((isIncludedPickup && !isIncludedDropoff) || (!isIncludedPickup && isIncludedDropoff)) {
-        // Only one city included
-        const includedRate = isIncludedPickup ? pickupRates.cityDay : dropoffRates.cityDay;
-        const notIncludedRate = isIncludedPickup ? dropoffRates.normal : pickupRates.normal;
-        baseCharge = (includedRate + notIncludedRate) / 2;
-        chargeType = 'Intercity/Same Date - One Scheduled';
-      } else if (isEmptyPickup || isEmptyDropoff) {
-        // Date is empty
-        baseCharge = (pickupRates.normal + dropoffRates.normal) / 2;
-        chargeType = 'Intercity/Same Date - Empty';
-      } else {
-        // Neither city included
-        baseCharge = Math.max(pickupRates.normal, dropoffRates.normal);
-        chargeType = 'Intercity/Same Date - Higher Standard';
-      }
-    } else {
-      // Between cities, different dates
-      if (isIncludedPickup && isIncludedDropoff) {
-        // Both cities included on their dates
-        baseCharge = (pickupRates.cityDay + dropoffRates.cityDay) / 2;
-        chargeType = 'Intercity/Diff Dates - Both Scheduled';
-        isCheapRate = true;
-      } else if ((isIncludedPickup && !isIncludedDropoff) || (!isIncludedPickup && isIncludedDropoff)) {
-        // Only one city included (regardless of other being empty or not)
-        const includedRate = isIncludedPickup ? pickupRates.cityDay : dropoffRates.cityDay;
-        const notIncludedRate = isIncludedPickup ? dropoffRates.normal : pickupRates.normal;
-        baseCharge = (includedRate + notIncludedRate) / 2;
-        chargeType = 'Intercity/Diff Dates - One Scheduled';
-      } else if (isEmptyPickup && isEmptyDropoff) {
-        // Both days empty
-        baseCharge = (pickupRates.normal + dropoffRates.normal) / 2;
-        chargeType = 'Intercity/Diff Dates - Both Empty';
-      } else {
-        // None of the dates include respective city
-        baseCharge = Math.max(pickupRates.normal, dropoffRates.normal);
-        chargeType = 'Intercity/Diff Dates - Higher Standard';
-      }
-    }
-
-    return [baseCharge, chargeType, isCheapRate];
   }
 
   /**
@@ -1145,156 +1009,6 @@ class SupabasePricingService {
     return await calculateDistanceFromLocations(pickup, dropoff);
   }
 
-  /**
-   * Get month pricing for calendar display
-   * Returns base pricing for each day of a month based on pickup/dropoff cities
-   * Cached for 5 minutes per month/city combo
-   */
-  async getMonthPricing({ year, month, pickupCity, dropoffCity, startDate, endDate }) {
-    const cacheKey = `month_pricing_${year}_${month}_${pickupCity}_${dropoffCity}`;
-    const cached = pricingCache.get(cacheKey);
-    if (cached) {
-      console.log('[MONTH-PRICING] Cache hit for', cacheKey);
-      return cached;
-    }
-
-    console.log('[MONTH-PRICING] Cache miss, calculating for', cacheKey);
-
-    const config = await this.getPricingConfig();
-    const days = [];
-
-    // Find city charges
-    const pickupCityRow = config.cityCharges?.find(c => 
-      c.city_name?.toLowerCase() === pickupCity?.toLowerCase()
-    );
-    const dropoffCityRow = config.cityCharges?.find(c => 
-      c.city_name?.toLowerCase() === dropoffCity?.toLowerCase()
-    );
-
-    // Fallback to first city if not found
-    const pickupRates = pickupCityRow || config.cityCharges?.[0] || { normal: 89, city_day: 64 };
-    const dropoffRates = dropoffCityRow || config.cityCharges?.[0] || { normal: 89, city_day: 64 };
-
-    const isSameCity = pickupCity?.toLowerCase() === dropoffCity?.toLowerCase();
-
-    // Get all schedule data for the month
-    const { data: scheduleData } = await supabase
-      .from('city_schedules')
-      .select('*')
-      .gte('scheduled_date', startDate)
-      .lte('scheduled_date', endDate);
-
-    // Get blocked dates for the month
-    const { data: blockedDates } = await supabase
-      .from('blocked_dates')
-      .select('*')
-      .gte('date', startDate)
-      .lte('date', endDate);
-
-    // Create lookup maps
-    const scheduleMap = new Map();
-    scheduleData?.forEach(s => {
-      if (!scheduleMap.has(s.scheduled_date)) {
-        scheduleMap.set(s.scheduled_date, []);
-      }
-      scheduleMap.get(s.scheduled_date).push(s.city_name);
-    });
-
-    const blockedSet = new Set();
-    blockedDates?.forEach(b => blockedSet.add(b.date));
-
-    // Calculate pricing for each day
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0];
-      const assignedCities = scheduleMap.get(dateStr) || [];
-      const isBlocked = blockedSet.has(dateStr);
-      const isEmpty = assignedCities.length === 0;
-
-      // Check if pickup/dropoff cities are scheduled
-      const pickupScheduled = assignedCities.includes(pickupCity);
-      const dropoffScheduled = assignedCities.includes(dropoffCity);
-
-      let basePrice = 0;
-      let isCityDay = false;
-      let priceType = '';
-
-      // Color Logic:
-      // Same City: Green=city scheduled, Orange=empty, Red=not scheduled
-      // Intercity: Green=both scheduled, Orange=one scheduled OR empty, Red=neither scheduled
-      let colorCode = 'red'; // Default: expensive/not scheduled
-      
-      if (isSameCity) {
-        // Same city pricing
-        if (pickupScheduled) {
-          // City IS scheduled for this day - GREEN (cheapest)
-          basePrice = pickupRates.city_day || pickupRates.cityDay || 64;
-          isCityDay = true;
-          priceType = 'City Day Rate';
-          colorCode = 'green';
-        } else if (isEmpty) {
-          // Empty day (no cities scheduled) - ORANGE (medium price)
-          basePrice = pickupRates.city_day || pickupRates.cityDay || 64;
-          isCityDay = false;
-          priceType = 'Empty Day Rate';
-          colorCode = 'orange';
-        } else {
-          // City not scheduled, other cities are - RED (expensive)
-          basePrice = pickupRates.normal || 89;
-          priceType = 'Standard Rate';
-          colorCode = 'red';
-        }
-      } else {
-        // Intercity pricing
-        if (pickupScheduled && dropoffScheduled) {
-          // BOTH cities scheduled - GREEN (cheapest)
-          basePrice = ((pickupRates.city_day || pickupRates.cityDay || 64) + (dropoffRates.city_day || dropoffRates.cityDay || 64)) / 2;
-          isCityDay = true;
-          priceType = 'Intercity City Day Rate';
-          colorCode = 'green';
-        } else if (pickupScheduled || dropoffScheduled || isEmpty) {
-          // ONE city scheduled OR empty day - ORANGE (medium)
-          if (pickupScheduled) {
-            basePrice = ((pickupRates.city_day || pickupRates.cityDay || 64) + (dropoffRates.normal || 89)) / 2;
-            priceType = 'Intercity Partial Rate (Pickup City)';
-          } else if (dropoffScheduled) {
-            basePrice = ((pickupRates.normal || 89) + (dropoffRates.city_day || dropoffRates.cityDay || 64)) / 2;
-            priceType = 'Intercity Partial Rate (Dropoff City)';
-          } else {
-            // Empty day
-            basePrice = ((pickupRates.city_day || pickupRates.cityDay || 64) + (dropoffRates.city_day || dropoffRates.cityDay || 64)) / 2;
-            priceType = 'Empty Day Rate';
-          }
-          isCityDay = false;
-          colorCode = 'orange';
-        } else {
-          // Neither city scheduled - RED (expensive)
-          basePrice = pickupRates.normal || 89;
-          priceType = 'Intercity Standard Rate';
-          colorCode = 'red';
-        }
-      }
-
-      days.push({
-        date: dateStr,
-        basePrice: Math.round(basePrice * 100) / 100,
-        isCityDay,
-        isEmpty,
-        priceType,
-        assignedCities,
-        isBlocked,
-        colorCode
-      });
-    }
-
-    const result = { days, pickupCity, dropoffCity, isSameCity };
-    pricingCache.set(cacheKey, result);
-    
-    console.log('[MONTH-PRICING] Calculated', days.length, 'days for', cacheKey);
-    return result;
-  }
 }
 
 export default new SupabasePricingService();

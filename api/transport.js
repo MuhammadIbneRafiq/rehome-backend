@@ -507,40 +507,6 @@ router.patch('/admin/requests/:id', async (req, res) => {
 });
 
 /**
- * Get month pricing for calendar display (cached)
- * Returns base pricing for each day of a month based on pickup/dropoff cities
- */
-router.post('/month-pricing', async (req, res) => {
-  try {
-    const { year, month, pickupCity, dropoffCity, startDate, endDate } = req.body;
-    
-    console.log('[MONTH-PRICING] Request:', { year, month, pickupCity, dropoffCity, startDate, endDate });
-    
-    const monthPricing = await supabasePricingService.getMonthPricing({
-      year,
-      month,
-      pickupCity,
-      dropoffCity,
-      startDate,
-      endDate
-    });
-    
-    res.json({
-      success: true,
-      data: monthPricing
-    });
-
-  } catch (error) {
-    console.error('Error getting month pricing:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get month pricing',
-      message: error.message
-    });
-  }
-});
-
-/**
  * Calculate pricing endpoint (uses Supabase pricing service)
  */
 router.post('/calculate-price', async (req, res) => {
