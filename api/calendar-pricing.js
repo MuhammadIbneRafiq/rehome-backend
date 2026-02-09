@@ -1,6 +1,6 @@
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
-import { extractCity as extractCityShared } from '../services/pricing/cityUtils.js';
+import { findClosestCity } from '../services/pricing/cityUtils.js';
 import {
   calculateHouseMovingFixedPrice,
   calculateItemTransportSameDatePrice,
@@ -36,12 +36,12 @@ async function prefetchCalendarData(startDate, endDate) {
     return _prefetchedSchedule;
   }
 
-  // Batch query 1: all scheduled cities in range
+  // Batch query 1: all scheduled cities in range (columns: date, city)
   const { data: scheduleData } = await supabase
     .from('city_schedules')
-    .select('scheduled_date, city_name')
-    .gte('scheduled_date', startStr)
-    .lte('scheduled_date', endStr);
+    .select('date, city')
+    .gte('date', startStr)
+    .lte('date', endStr);
 
   // Batch query 2: all blocked dates in range
   const { data: blockedData } = await supabase
@@ -53,10 +53,10 @@ async function prefetchCalendarData(startDate, endDate) {
   // Build lookup maps
   const scheduleMap = new Map(); // date → [city1, city2, ...]
   scheduleData?.forEach(s => {
-    if (!scheduleMap.has(s.scheduled_date)) {
-      scheduleMap.set(s.scheduled_date, []);
+    if (!scheduleMap.has(s.date)) {
+      scheduleMap.set(s.date, []);
     }
-    scheduleMap.get(s.scheduled_date).push(s.city_name);
+    scheduleMap.get(s.date).push(s.city);
   });
 
   const blockedSet = new Set();
@@ -84,14 +84,15 @@ router.post('/range', async (req, res) => {
       dropoffDate // For item transport with different dates
     } = req.body;
 
-    // Extract cities from locations
-    const pickupCity = extractCity(pickupLocation);
-    const dropoffCity = extractCity(dropoffLocation);
-    const isIntercity = pickupCity !== dropoffCity;
+    // Load all city charges (cached) for robust city resolution
+    const allCityCharges = await getAllCityCharges();
 
-    // Extract coordinates for nearest-city fallback
-    const pickupCoords = pickupLocation?.coordinates || null;
-    const dropoffCoords = dropoffLocation?.coordinates || null;
+    // Resolve cities using robust findClosestCity (same logic as sidebar pricing)
+    const pickupCityRow = findClosestCity(pickupLocation, allCityCharges);
+    const dropoffCityRow = findClosestCity(dropoffLocation, allCityCharges);
+    const pickupCity = pickupCityRow?.city_name || 'Amsterdam';
+    const dropoffCity = dropoffCityRow?.city_name || 'Amsterdam';
+    const isIntercity = pickupCity !== dropoffCity;
 
     // Generate date range
     const dates = generateDateRange(startDate, endDate);
@@ -99,11 +100,9 @@ router.post('/range', async (req, res) => {
     // Prefetch all calendar data for the range in 2 batch queries
     const prefetched = await prefetchCalendarData(startDate, endDate);
 
-    // Get city base charges (with coordinate-based nearest-city fallback)
-    const [pickupCharge, dropoffCharge] = await Promise.all([
-      getCityBaseCharge(pickupCity, pickupCoords),
-      getCityBaseCharge(dropoffCity, dropoffCoords)
-    ]);
+    // Get city base charges directly from resolved rows (no extra DB queries)
+    const pickupCharge = { cheap: pickupCityRow?.city_day, standard: pickupCityRow?.normal };
+    const dropoffCharge = { cheap: dropoffCityRow?.city_day, standard: dropoffCityRow?.normal };
 
     // Calculate pricing for each date (no more per-day DB queries)
     const pricingData = dates.map((date) => {
@@ -324,94 +323,18 @@ function getCalendarStatusFromPrefetch(dateStr, pickupCity, dropoffCity, prefetc
 }
 
 /**
- * Get base charges for a city (correct column names: normal, city_day)
- * Fallback: if city not found, find nearest major city by straight-line distance
+ * Get ALL city charges (cached for 5 min). Used by findClosestCity.
  */
-async function getCityBaseCharge(city, coordinates) {
-  // Check cache first
-  const cacheKeyLower = city?.toLowerCase() || 'amsterdam';
-  const cached = cityChargeCache.get(cacheKeyLower);
-  if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
-    return cached.data;
+let _allCityChargesCache = null;
+async function getAllCityCharges() {
+  if (_allCityChargesCache && Date.now() - _allCityChargesCache.timestamp < 5 * 60 * 1000) {
+    return _allCityChargesCache.data;
   }
-
-  try {
-    // Try exact city match first
-    const { data: cityCharge } = await supabase
-      .from('city_base_charges')
-      .select('city_day, normal')
-      .ilike('city_name', city || 'Amsterdam')
-      .single();
-
-    if (cityCharge) {
-      const result = { cheap: cityCharge.city_day, standard: cityCharge.normal };
-      cityChargeCache.set(cacheKeyLower, { data: result, timestamp: Date.now() });
-      return result;
-    }
-  } catch {
-    // City not found — fall through to nearest-city fallback
-  }
-
-  // Fallback: find nearest major city by distance using coordinates
-  try {
-    const { data: allCities } = await supabase
-      .from('city_base_charges')
-      .select('city_name, city_day, normal, latitude, longitude');
-
-    if (allCities && allCities.length > 0) {
-      let nearest = allCities[0];
-
-      if (coordinates?.lat && coordinates?.lng) {
-        let minDist = Infinity;
-        for (const c of allCities) {
-          if (c.latitude && c.longitude) {
-            const dist = haversineDistance(
-              coordinates.lat, coordinates.lng,
-              parseFloat(c.latitude), parseFloat(c.longitude)
-            );
-            if (dist < minDist) {
-              minDist = dist;
-              nearest = c;
-            }
-          }
-        }
-        console.log(`[getCityBaseCharge] "${city}" not found → nearest city: ${nearest.city_name} (${Math.round(minDist)}km)`);
-      } else {
-        console.log(`[getCityBaseCharge] "${city}" not found, no coords → using ${nearest.city_name}`);
-      }
-
-      const result = { cheap: nearest.city_day, standard: nearest.normal };
-      cityChargeCache.set(cacheKeyLower, { data: result, timestamp: Date.now() });
-      return result;
-    }
-  } catch (error) {
-    console.error('[getCityBaseCharge] Fallback error for city:', city, error);
-  }
-
-  return { cheap: 64, standard: 89 };
-}
-
-/**
- * Haversine formula — straight-line distance in km between two lat/lng points
- */
-function haversineDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = toRadians(lat2 - lat1);
-  const dLon = toRadians(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function toRadians(deg) { return deg * (Math.PI / 180); }
-
-/**
- * Extract city from location object
- */
-function extractCity(location) {
-  return extractCityShared(location);
+  const { data } = await supabase
+    .from('city_base_charges')
+    .select('city_name, city_day, normal, latitude, longitude');
+  _allCityChargesCache = { data: data || [], timestamp: Date.now() };
+  return _allCityChargesCache.data;
 }
 
 

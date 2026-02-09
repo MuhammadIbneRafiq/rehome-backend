@@ -13,6 +13,7 @@ import {
   calculateFlexiblePrice,
   calculateRehomePrice
 } from './pricing/basePriceCalculator.js';
+import { findClosestCity as findClosestCityShared } from './pricing/cityUtils.js';
 
 // Use shared Supabase client
 const supabase = supabaseClient;
@@ -827,167 +828,11 @@ class SupabasePricingService {
   }
 
   /**
-   * Helper: Find closest city from Google Place object
-   * If no exact match, finds the nearest major city
+   * Helper: Find closest city from Google Place object.
+   * Delegates to the shared findClosestCity in cityUtils.js (single source of truth).
    */
   findClosestCity(placeObject, cityCharges) {
-    if (!placeObject) {
-      console.log('[DEBUG] findClosestCity - placeObject is null/undefined');
-      return null;
-    }
-    
-    console.log('[DEBUG] ====== findClosestCity START ======');
-    console.log('[DEBUG] findClosestCity - placeObject keys:', Object.keys(placeObject));
-    console.log('[DEBUG] findClosestCity - placeObject.city:', placeObject.city);
-    console.log('[DEBUG] findClosestCity - placeObject.formattedAddress:', placeObject.formattedAddress);
-    console.log('[DEBUG] findClosestCity - placeObject.displayName:', placeObject.displayName);
-    console.log('[DEBUG] findClosestCity - placeObject.text:', placeObject.text);
-    
-    // PRIORITY 1: Use the extracted city field directly if available
-    if (placeObject.city) {
-      const cityName = placeObject.city.toLowerCase();
-      console.log('[DEBUG] findClosestCity - Using extracted city field:', cityName);
-      
-      // Direct match on city name
-      const directMatch = cityCharges.find((c) =>
-        c.city_name?.toLowerCase() === cityName ||
-        cityName.includes(c.city_name?.toLowerCase()) ||
-        c.city_name?.toLowerCase().includes(cityName)
-      );
-      
-      if (directMatch) {
-        console.log('[DEBUG] findClosestCity - Direct city match:', directMatch.city_name);
-        return directMatch;
-      }
-      
-      // Handle special cases like "Den Haag" -> "The Hague", "'s-Gravenhage" -> "The Hague"
-      const cityVariations = {
-        'den haag': 'The Hague',
-        'the hague': 'The Hague',
-        "'s-gravenhage": 'The Hague',
-        's-gravenhage': 'The Hague',
-        "'s-hertogenbosch": 's-Hertogenbosch',
-        'den bosch': 's-Hertogenbosch'
-      };
-      
-      const normalizedCity = cityVariations[cityName] || cityVariations[cityName.replace(/'/g, "'")];
-      if (normalizedCity) {
-        const variantMatch = cityCharges.find((c) => c.city_name === normalizedCity);
-        if (variantMatch) {
-          console.log('[DEBUG] findClosestCity - Variant city match:', variantMatch.city_name);
-          return variantMatch;
-        }
-      }
-    }
-    
-    // PRIORITY 2: Search within formattedAddress, displayName, text
-    const searchText = (
-      placeObject.formattedAddress?.toLowerCase() ||
-      placeObject.displayName?.toLowerCase() || 
-      placeObject.text?.toLowerCase() || 
-      ''
-    );
-    
-    console.log('[DEBUG] findClosestCity - searchText:', searchText);
-    console.log('[DEBUG] findClosestCity - available cities:', cityCharges.map(c => c.city_name));
-    
-    if (!searchText) {
-      console.log('[DEBUG] findClosestCity - No search text extracted');
-      // FALLBACK: Return nearest major city (Amsterdam as default)
-      const fallbackCity = cityCharges.find(c => c.city_name === 'Amsterdam') || cityCharges[0];
-      if (fallbackCity) {
-        console.log('[WARN] findClosestCity - Using fallback city:', fallbackCity.city_name);
-        return fallbackCity;
-      }
-      return null;
-    }
-
-    // Match against configured cities - check if city name appears in the search text
-    const match = cityCharges.find((c) =>
-      searchText.includes(c.city_name?.toLowerCase())
-    );
-    
-    if (match) {
-      console.log('[DEBUG] findClosestCity - match result:', match.city_name);
-      return match;
-    }
-    
-    // FALLBACK: No match found - find geographically closest city
-    console.log('[WARN] findClosestCity - No exact match, finding geographically closest city');
-    
-    // If we have coordinates, find the geographically closest city
-    if (placeObject.coordinates?.lat && placeObject.coordinates?.lng) {
-      const closestCity = this.findGeographicallyClosestCity(placeObject.coordinates, cityCharges);
-      if (closestCity) {
-        console.log('[WARN] findClosestCity - Using geographically closest city:', closestCity.city_name);
-        return closestCity;
-      }
-    }
-    
-    // Ultimate fallback: use the first available city
-    const fallbackCity = cityCharges[0];
-    if (fallbackCity) {
-      console.log('[WARN] findClosestCity - Using first available city as fallback:', fallbackCity.city_name);
-      return fallbackCity;
-    }
-    
-    console.log('[ERROR] findClosestCity - No cities available at all');
-    return null;
-  }
-
-  /**
-   * Find geographically closest city using straight-line distance
-   * Uses coordinates from city_base_charges table (single source of truth)
-   */
-  findGeographicallyClosestCity(coordinates, cityCharges) {
-    let closestCity = null;
-    let minDistance = Infinity;
-
-    for (const city of cityCharges) {
-      // Use coordinates from database (latitude/longitude columns)
-      if (city.latitude && city.longitude) {
-        const distance = this.calculateStraightLineDistance(
-          coordinates.lat,
-          coordinates.lng,
-          parseFloat(city.latitude),
-          parseFloat(city.longitude)
-        );
-
-        if (distance < minDistance) {
-          minDistance = distance;
-          closestCity = city;
-        }
-      }
-    }
-
-    return closestCity;
-  }
-
-  /**
-   * Calculate straight-line distance between two coordinates using Haversine formula
-   * Returns distance in kilometers
-   */
-  calculateStraightLineDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371; // Earth's radius in kilometers
-    const dLat = this.toRadians(lat2 - lat1);
-    const dLon = this.toRadians(lon2 - lon1);
-    
-    const a = 
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(this.toRadians(lat1)) * Math.cos(this.toRadians(lat2)) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c;
-    
-    return distance;
-  }
-
-  /**
-   * Convert degrees to radians
-   */
-  toRadians(degrees) {
-    return degrees * (Math.PI / 180);
+    return findClosestCityShared(placeObject, cityCharges);
   }
 
   /**
