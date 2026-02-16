@@ -241,10 +241,10 @@ export const sendMovingRequestEmail = async (movingData) => {
           <div style="margin-bottom: 20px;">
             <h4 style="color: #ff6b35; margin-bottom: 10px;">Price Breakdown</h4>
             <table style="width: 100%; border-collapse: collapse;">
-              ${orderSummary.basePrice || orderSummary.lateBookingFee ? `
+              ${orderSummary.basePrice ? `
               <tr style="border-bottom: 1px solid #e0e0e0;">
-                <td style="padding: 8px 0; color: #666;">Base Charge${orderSummary.lateBookingFee > 0 ? ' (Including late booking fee)' : ''}</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${((orderSummary.basePrice || 0) + (orderSummary.lateBookingFee || 0)).toFixed(2)}</td>
+                <td style="padding: 8px 0; color: #666;">Base Charge</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">€${(orderSummary.basePrice || 0).toFixed(2)}</td>
               </tr>` : ''}
               ${orderSummary.distanceCost ? `
               <tr style="border-bottom: 1px solid #e0e0e0;">

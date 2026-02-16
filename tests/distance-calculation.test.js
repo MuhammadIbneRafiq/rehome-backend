@@ -223,8 +223,7 @@ describe('Distance Calculation with Fallbacks', () => {
         result.carryingCost + 
         result.assemblyCost + 
         result.extraHelperCost - 
-        result.studentDiscount + 
-        result.lateBookingFee
+        result.studentDiscount
       );
     });
 

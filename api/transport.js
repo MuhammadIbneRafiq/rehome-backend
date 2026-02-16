@@ -355,8 +355,7 @@ router.post('/create', upload.fields([
           extraHelper: parsedPricingBreakdown?.extraHelperCost || 0,
           studentDiscount: parsedPricingBreakdown?.studentDiscount || 0
         },
-        lateBookingFee: parsedPricingBreakdown?.lateBookingFee || 0,
-        totalPrice: parsedPricingBreakdown?.total || 0,
+                totalPrice: parsedPricingBreakdown?.total || 0,
         contactInfo: {
           name: customerName,
           email: email,

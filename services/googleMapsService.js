@@ -43,7 +43,7 @@ const cacheStats = {
  * Get the Google Maps API key from environment variables
  */
 const getApiKey = () => {
-  return process.env.GOOGLE_MAPS_API || process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API;
+  return process.env.GOOGLE_MAPS_API;
 };
 
 /**
@@ -248,7 +248,7 @@ export async function getPlaceDetails(placeId) {
 
 /**
  * Calculate distance between two locations with caching
- * Uses Google Routes API with OpenRouteService fallback
+ * Uses Google Distance Matrix API with OpenRouteService fallback
  * @param {string} origin - Origin coordinates as "lat,lng"
  * @param {string} destination - Destination coordinates as "lat,lng"
  * @returns {Promise<object>} - Distance calculation result
@@ -281,86 +281,74 @@ export async function calculateDistance(origin, destination) {
     return { success: false, error: 'Invalid coordinates format' };
   }
 
-  // Try Google Routes API first
+  // Try Google Distance Matrix API first
   const apiKey = getApiKey();
   
   if (apiKey) {
     try {
-      console.log('🔵 Trying Google Routes API...');
+      console.log('🔵 Trying Google Distance Matrix API...');
       
-      const requestBody = {
-        origin: {
-          location: {
-            latLng: { latitude: originLat, longitude: originLng }
-          }
-        },
-        destination: {
-          location: {
-            latLng: { latitude: destLat, longitude: destLng }
-          }
-        },
-        travelMode: 'DRIVE',
-        routingPreference: 'TRAFFIC_UNAWARE',
-        computeAlternativeRoutes: false,
-        routeModifiers: {
-          avoidTolls: true,
-          avoidHighways: false,
-          avoidFerries: false
-        },
-        languageCode: 'en-US',
-        units: 'METRIC'
-      };
-
-      const response = await axios.post(
-        'https://routes.googleapis.com/directions/v2:computeRoutes',
-        requestBody,
+      const response = await axios.get(
+        'https://maps.googleapis.com/maps/api/distancematrix/json',
         {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Goog-Api-Key': apiKey,
-            'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline'
+          params: {
+            origins: `${originLat},${originLng}`,
+            destinations: `${destLat},${destLng}`,
+            mode: 'driving',
+            units: 'metric',
+            key: apiKey
           },
           timeout: 10000
         }
       );
 
-      if (response.data.routes && response.data.routes.length > 0) {
-        const route = response.data.routes[0];
-        const distanceMeters = route.distanceMeters;
-        const distanceKm = distanceMeters / 1000;
-        const durationSeconds = parseInt(route.duration.replace('s', ''));
-
-        // Format duration
-        const hours = Math.floor(durationSeconds / 3600);
-        const minutes = Math.floor((durationSeconds % 3600) / 60);
-        let durationText = hours > 0 
-          ? `${hours} hour${hours > 1 ? 's' : ''} ${minutes} min${minutes !== 1 ? 's' : ''}`
-          : `${minutes} min${minutes !== 1 ? 's' : ''}`;
-
-        const result = {
-          success: true,
-          distance: distanceMeters,
-          distanceKm: Math.round(distanceKm * 100) / 100,
-          duration: durationSeconds,
-          durationText,
-          distanceText: `${distanceKm.toFixed(1)} km`,
-          origin,
-          destination,
-          provider: 'Google Routes API'
-        };
-
-        // Cache the result
-        distanceCache.set(cacheKey, result);
+      if (response.data.status === 'OK' && 
+          response.data.rows && 
+          response.data.rows.length > 0 &&
+          response.data.rows[0].elements &&
+          response.data.rows[0].elements.length > 0) {
         
-        console.log('✅ Google Routes API success:', distanceKm.toFixed(2), 'km');
-        return result;
+        const element = response.data.rows[0].elements[0];
+        
+        if (element.status === 'OK') {
+          const distanceMeters = element.distance.value;
+          const distanceKm = distanceMeters / 1000;
+          const durationSeconds = element.duration.value;
+
+          // Format duration
+          const hours = Math.floor(durationSeconds / 3600);
+          const minutes = Math.floor((durationSeconds % 3600) / 60);
+          let durationText = hours > 0 
+            ? `${hours} hour${hours > 1 ? 's' : ''} ${minutes} min${minutes !== 1 ? 's' : ''}`
+            : `${minutes} min${minutes !== 1 ? 's' : ''}`;
+
+          const result = {
+            success: true,
+            distance: distanceMeters,
+            distanceKm: Math.round(distanceKm * 100) / 100,
+            duration: durationSeconds,
+            durationText,
+            distanceText: `${distanceKm.toFixed(1)} km`,
+            origin,
+            destination,
+            provider: 'Google Distance Matrix API'
+          };
+
+          // Cache the result
+          distanceCache.set(cacheKey, result);
+          
+          console.log(`✅ Google Distance Matrix API success: ${distanceKm.toFixed(2)} km`);
+          return result;
+        }
       }
+      
+      throw new Error('Invalid response from Distance Matrix API');
     } catch (googleError) {
-      console.log('⚠️ Google Routes API failed:', googleError.message);
+      console.log('⚠️ Google Distance Matrix API failed:', googleError.message);
       console.log('🔄 Falling back to OpenRouteService...');
     }
   } else {
-    console.log('⚠️ No Google Maps API key found, using OpenRouteService...');
+    console.log('⚠️ No GOOGLE_MAPS_API found, using OpenRouteService...');
   }
 
   // Fallback to OpenRouteService
@@ -489,7 +477,7 @@ export async function calculateDistanceFromLocations(pickup, dropoff) {
     const result = await calculateDistance(originCoords, destCoords);
     
     if (result.success && result.distanceKm) {
-      console.log(`📍 Calculated distance: ${result.distanceKm}km`);
+      console.log(`📍 Calculated distance: ${result.distanceKm}km using ${result.provider}`);
       return result.distanceKm;
     }
     

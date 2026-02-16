@@ -46,7 +46,10 @@ const cacheStats = {
  * This is the main bottleneck - multiple users checking same dates/cities
  */
 export async function getCityScheduleStatusCached(city, date) {
-  const cacheKey = `city_schedule_${city}_${date}`;
+  // Normalize date to YYYY-MM-DD format to avoid timezone issues
+  const normalizedDate = date.includes('T') ? new Date(date).toISOString().split('T')[0] : date;
+  console.log('[CACHE DEBUG] getCityScheduleStatus:', { city, originalDate: date, normalizedDate });
+  const cacheKey = `city_schedule_${city}_${normalizedDate}`;
   
   // Try to get from cache first
   const cached = cityScheduleCache.get(cacheKey);
@@ -61,13 +64,15 @@ export async function getCityScheduleStatusCached(city, date) {
     // Call Supabase RPC function
     const { data, error } = await supabaseClient.rpc('get_city_schedule_status', {
       check_city: city,
-      check_date: date
+      check_date: normalizedDate
     });
     
     if (error) {
       console.error('Error getting city schedule status:', error);
       return { isScheduled: false, isEmpty: true };
     }
+    
+    console.log('[CACHE DEBUG] City schedule result:', { city, date: normalizedDate, result: data });
     
     // Cache the result
     cityScheduleCache.set(cacheKey, data);

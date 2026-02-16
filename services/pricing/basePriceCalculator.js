@@ -8,7 +8,7 @@
  * Rules Reference:
  * - cheap base charge = city scheduled in admin calendar
  * - standard base charge = city NOT scheduled but NOT blocked
- * - empty day charge = 75% of cheapest (house moving) or 75% of standard (item transport)
+ * - empty day charge = 75% of standard (both house moving and item transport)
  * - blocked = no booking possible
  */
 
@@ -45,7 +45,7 @@ export function calculateHouseMovingFixedPrice({
     if (pickupScheduled) {
       return { price: pickupCheap, type: 'City Day Rate - Scheduled' };
     } else if (isEmpty) {
-      return { price: pickupCheap * 0.75, type: 'Empty Day - 75% Cheapest' };
+      return { price: pickupStandard * 0.75, type: 'Empty Day - 75% Standard' };
     } else {
       return { price: pickupStandard, type: 'Standard Rate' };
     }

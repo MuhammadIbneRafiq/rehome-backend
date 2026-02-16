@@ -35,7 +35,6 @@ async function runPricingTests() {
   console.log('  Extra Helper Cost:', result1.extraHelperCost);
   console.log('  Subtotal:', result1.subtotal);
   console.log('  Student Discount:', result1.studentDiscount);
-  console.log('  Late Booking Fee:', result1.lateBookingFee);
   console.log('  Total:', result1.total);
   console.log('  Subtotal == Total:', result1.subtotal === result1.total);
   console.log('  Difference:', result1.subtotal - result1.total);
@@ -119,10 +118,9 @@ async function runPricingTests() {
   console.log('  Extra Helper Cost:', result4.extraHelperCost);
   console.log('  Subtotal:', result4.subtotal);
   console.log('  Student Discount:', result4.studentDiscount);
-  console.log('  Late Booking Fee:', result4.lateBookingFee);
   console.log('  Total:', result4.total);
   
-  const expectedTotal4 = result4.subtotal - result4.studentDiscount + result4.lateBookingFee;
+  const expectedTotal4 = result4.subtotal - result4.studentDiscount;
   console.log('  Expected Total:', expectedTotal4);
   console.log('  Formula Correct:', result4.total === expectedTotal4);
   console.log('  Difference:', expectedTotal4 - result4.total);

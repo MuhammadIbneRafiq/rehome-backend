@@ -17,11 +17,6 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-// Cache for pricing data (TTL: 5 minutes for pricing, 1 minute for calendar status)
-const pricingCache = new Map();
-const calendarCache = new Map();
-const cityChargeCache = new Map();
-
 // ─── Batch prefetch: loads all schedule + blocked data for a range in 2 queries ──
 let _prefetchedSchedule = null; // { scheduleMap, blockedSet, rangeKey, timestamp }
 
@@ -43,12 +38,13 @@ async function prefetchCalendarData(startDate, endDate) {
     .gte('date', startStr)
     .lte('date', endStr);
 
-  // Batch query 2: all blocked dates in range
+  // Batch query 2: all blocked dates in range (include cities + is_full_day for per-city checks)
   const { data: blockedData } = await supabase
     .from('blocked_dates')
-    .select('date')
+    .select('date, cities, is_full_day')
     .gte('date', startStr)
-    .lte('date', endStr);
+    .lte('date', endStr)
+    .eq('is_full_day', true);
 
   // Build lookup maps
   const scheduleMap = new Map(); // date → [city1, city2, ...]
@@ -59,11 +55,18 @@ async function prefetchCalendarData(startDate, endDate) {
     scheduleMap.get(s.date).push(s.city);
   });
 
-  const blockedSet = new Set();
-  blockedData?.forEach(b => blockedSet.add(b.date));
+  // blockedMap: date → array of { cities: string[] } entries
+  // Empty cities array means ALL cities blocked; otherwise only those specific cities
+  const blockedMap = new Map();
+  blockedData?.forEach(b => {
+    if (!blockedMap.has(b.date)) {
+      blockedMap.set(b.date, []);
+    }
+    blockedMap.get(b.date).push({ cities: b.cities || [] });
+  });
 
-  _prefetchedSchedule = { scheduleMap, blockedSet, rangeKey, timestamp: Date.now() };
-  console.log('[calendar-pricing] Prefetched', scheduleMap.size, 'schedule days,', blockedSet.size, 'blocked days');
+  _prefetchedSchedule = { scheduleMap, blockedMap, rangeKey, timestamp: Date.now() };
+  console.log('[calendar-pricing] Prefetched', scheduleMap.size, 'schedule days,', blockedMap.size, 'blocked days');
   return _prefetchedSchedule;
 }
 
@@ -101,8 +104,9 @@ router.post('/range', async (req, res) => {
     const prefetched = await prefetchCalendarData(startDate, endDate);
 
     // Get city base charges directly from resolved rows (no extra DB queries)
-    const pickupCharge = { cheap: pickupCityRow?.city_day, standard: pickupCityRow?.normal };
-    const dropoffCharge = { cheap: dropoffCityRow?.city_day, standard: dropoffCityRow?.normal };
+    // parseFloat: Supabase numeric columns may return strings
+    const pickupCharge = { cheap: parseFloat(pickupCityRow?.city_day) || 0, standard: parseFloat(pickupCityRow?.normal) || 0 };
+    const dropoffCharge = { cheap: parseFloat(dropoffCityRow?.city_day) || 0, standard: parseFloat(dropoffCityRow?.normal) || 0 };
 
     // Calculate pricing for each date (no more per-day DB queries)
     const pricingData = dates.map((date) => {
@@ -132,7 +136,9 @@ router.post('/range', async (req, res) => {
           averagePrice: pricingData.reduce((sum, d) => sum + d.price, 0) / pricingData.length,
           pickupCity,
           dropoffCity,
-          isIntercity
+          isIntercity,
+          pickupCharge,
+          dropoffCharge
         }
       }
     });
@@ -279,17 +285,37 @@ function calculateDatePricing({
   }
 
   // Determine color code from calendar status
+  // Same City:  green=scheduled, orange=empty, red=not included, grey=blocked
+  // Intercity:  green=both included, orange=one included OR empty, red=neither included, grey=blocked
   let colorCode = 'red';
   let priceType = 'standard';
   if (calendarStatus.isBlocked) {
     colorCode = 'grey';
     priceType = 'blocked';
-  } else if (calendarStatus.isEmpty) {
-    colorCode = 'orange';
-    priceType = 'empty';
-  } else if (calendarStatus.pickupScheduled && (!isIntercity || calendarStatus.dropoffScheduled)) {
-    colorCode = 'green';
-    priceType = 'cheap';
+  } else if (!isIntercity) {
+    // Same city color rules
+    if (calendarStatus.pickupScheduled) {
+      colorCode = 'green';
+      priceType = 'cheap';
+    } else if (calendarStatus.isEmpty) {
+      colorCode = 'orange';
+      priceType = 'empty';
+    } else {
+      colorCode = 'red';
+      priceType = 'standard';
+    }
+  } else {
+    // Intercity color rules
+    if (calendarStatus.pickupScheduled && calendarStatus.dropoffScheduled) {
+      colorCode = 'green';
+      priceType = 'cheap';
+    } else if (calendarStatus.pickupScheduled || calendarStatus.dropoffScheduled || calendarStatus.isEmpty) {
+      colorCode = 'orange';
+      priceType = 'empty';
+    } else {
+      colorCode = 'red';
+      priceType = 'standard';
+    }
   }
 
   return {
@@ -312,9 +338,18 @@ function calculateDatePricing({
  * Build calendar status from prefetched data (no DB calls)
  */
 function getCalendarStatusFromPrefetch(dateStr, pickupCity, dropoffCity, prefetched) {
-  const { scheduleMap, blockedSet } = prefetched;
+  const { scheduleMap, blockedMap } = prefetched;
   const assignedCities = scheduleMap.get(dateStr) || [];
-  const isBlocked = blockedSet.has(dateStr);
+
+  // Check blocked status: a date is blocked if any block entry covers all cities
+  // OR covers the pickup or dropoff city specifically
+  const blockEntries = blockedMap.get(dateStr) || [];
+  const isBlocked = blockEntries.some(entry => {
+    if (!entry.cities || entry.cities.length === 0) return true; // all cities blocked
+    const lowerCities = entry.cities.map(c => c.toLowerCase());
+    return lowerCities.includes(pickupCity.toLowerCase()) || lowerCities.includes(dropoffCity.toLowerCase());
+  });
+
   const isEmpty = assignedCities.length === 0;
   const pickupScheduled = assignedCities.some(c => c.toLowerCase() === pickupCity.toLowerCase());
   const dropoffScheduled = assignedCities.some(c => c.toLowerCase() === dropoffCity.toLowerCase());
@@ -358,10 +393,8 @@ function generateDateRange(startDate, endDate) {
  * Clear cache on calendar updates (called via webhook or realtime)
  */
 router.post('/clear-cache', async (req, res) => {
-  pricingCache.clear();
-  calendarCache.clear();
-  cityChargeCache.clear();
   _prefetchedSchedule = null;
+  _allCityChargesCache = null;
   res.json({ success: true, message: 'Cache cleared' });
 });
 

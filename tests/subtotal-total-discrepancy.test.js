@@ -40,14 +40,12 @@ describe('Subtotal vs Total Discrepancy Tests', () => {
       console.log('Extra Helper Cost:', result.extraHelperCost);
       console.log('Subtotal:', result.subtotal);
       console.log('Student Discount:', result.studentDiscount);
-      console.log('Late Booking Fee:', result.lateBookingFee);
       console.log('Total:', result.total);
       console.log('Subtotal - Total:', result.subtotal - result.total);
 
       // When no discounts/fees, subtotal should equal total
       expect(result.subtotal).toBe(result.total);
       expect(result.studentDiscount).toBe(0);
-      expect(result.lateBookingFee).toBe(0);
     });
 
     it('should have total < subtotal when student discount applied', async () => {
@@ -83,45 +81,7 @@ describe('Subtotal vs Total Discrepancy Tests', () => {
       expect(result.studentDiscount).toBeGreaterThan(0);
       expect(result.total).toBeLessThan(result.subtotal);
       expect(result.total).toBe(result.subtotal - result.studentDiscount);
-      expect(result.lateBookingFee).toBe(0);
-    });
-
-    it('should have total > subtotal when late booking fee applied', async () => {
-      const input = {
-        serviceType: 'item-transport',
-        pickupLocation: { city: 'Amsterdam', coordinates: { lat: 52.3676, lng: 4.9041 } },
-        dropoffLocation: { city: 'Amsterdam', coordinates: { lat: 52.3676, lng: 4.9041 } },
-        pickupDate: '2024-02-15',
-        dropoffDate: '2024-02-15',
-        items: [
-          { id: 'dd7e4197-677c-4ccb-8aa6-38ad40167899', quantity: 1, points: 2 } // Chair
-        ],
-        hasStudentId: false,
-        needsAssembly: false,
-        needsExtraHelper: false,
-        pickupFloors: 0,
-        dropoffFloors: 0,
-        hasElevatorPickup: false,
-        hasElevatorDropoff: false,
-        daysUntilMove: 2 // Late booking
-      };
-
-      const result = await supabasePricingService.calculatePricing(input);
-      
-      console.log('\n=== ITEM TRANSPORT LATE BOOKING FEE TEST ===');
-      console.log('Subtotal:', result.subtotal);
-      console.log('Late Booking Fee:', result.lateBookingFee);
-      console.log('Total:', result.total);
-      console.log('Expected Total:', result.subtotal + result.lateBookingFee);
-      console.log('Actual Total:', result.total);
-      console.log('Difference:', (result.subtotal + result.lateBookingFee) - result.total);
-
-      // Late booking fee should increase total
-      expect(result.lateBookingFee).toBeGreaterThan(0);
-      expect(result.total).toBeGreaterThan(result.subtotal);
-      expect(result.total).toBe(result.subtotal + result.lateBookingFee);
-      expect(result.studentDiscount).toBe(0);
-    });
+          });
 
     it('should handle complex item transport with all services', async () => {
       const input = {
@@ -155,14 +115,13 @@ describe('Subtotal vs Total Discrepancy Tests', () => {
       console.log('Extra Helper Cost:', result.extraHelperCost);
       console.log('Subtotal:', result.subtotal);
       console.log('Student Discount:', result.studentDiscount);
-      console.log('Late Booking Fee:', result.lateBookingFee);
       console.log('Total:', result.total);
-      console.log('Expected Total:', result.subtotal - result.studentDiscount + result.lateBookingFee);
+      console.log('Expected Total:', result.subtotal - result.studentDiscount);
       console.log('Actual Total:', result.total);
-      console.log('Difference:', (result.subtotal - result.studentDiscount + result.lateBookingFee) - result.total);
+      console.log('Difference:', (result.subtotal - result.studentDiscount) - result.total);
 
-      // Verify the formula: total = subtotal - studentDiscount + lateBookingFee
-      const expectedTotal = result.subtotal - result.studentDiscount + result.lateBookingFee;
+      // Verify the formula: total = subtotal - studentDiscount
+      const expectedTotal = result.subtotal - result.studentDiscount;
       expect(result.total).toBeCloseTo(expectedTotal, 2);
     });
   });
@@ -197,14 +156,12 @@ describe('Subtotal vs Total Discrepancy Tests', () => {
       console.log('Extra Helper Cost:', result.extraHelperCost);
       console.log('Subtotal:', result.subtotal);
       console.log('Student Discount:', result.studentDiscount);
-      console.log('Late Booking Fee:', result.lateBookingFee);
       console.log('Total:', result.total);
       console.log('Subtotal - Total:', result.subtotal - result.total);
 
       // When no discounts/fees, subtotal should equal total
       expect(result.subtotal).toBe(result.total);
       expect(result.studentDiscount).toBe(0);
-      expect(result.lateBookingFee).toBe(0);
     });
 
     it('should apply 2x multiplier for house moving item values', async () => {
@@ -269,14 +226,13 @@ describe('Subtotal vs Total Discrepancy Tests', () => {
       console.log('Extra Helper Cost:', result.extraHelperCost);
       console.log('Subtotal:', result.subtotal);
       console.log('Student Discount:', result.studentDiscount);
-      console.log('Late Booking Fee:', result.lateBookingFee);
       console.log('Total:', result.total);
-      console.log('Expected Total:', result.subtotal - result.studentDiscount + result.lateBookingFee);
+      console.log('Expected Total:', result.subtotal - result.studentDiscount);
       console.log('Actual Total:', result.total);
-      console.log('Difference:', (result.subtotal - result.studentDiscount + result.lateBookingFee) - result.total);
+      console.log('Difference:', (result.subtotal - result.studentDiscount) - result.total);
 
-      // Verify the formula: total = subtotal - studentDiscount + lateBookingFee
-      const expectedTotal = result.subtotal - result.studentDiscount + result.lateBookingFee;
+      // Verify the formula: total = subtotal - studentDiscount
+      const expectedTotal = result.subtotal - result.studentDiscount;
       expect(result.total).toBeCloseTo(expectedTotal, 2);
       
       // House moving should apply 2x multiplier

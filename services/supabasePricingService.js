@@ -78,7 +78,6 @@ class SupabasePricingService {
    * Calculate pricing based on input parameters
    */
   async calculatePricing(input) {
-    console.log('\n========== PRICING CALCULATION START ==========');
     console.log('[PRICING] Input:', JSON.stringify({
       serviceType: input.serviceType,
       isDateFlexible: input.isDateFlexible,
@@ -105,7 +104,6 @@ class SupabasePricingService {
     }
     
     const config = await this.getPricingConfig();
-    console.log('here is the whole fucking config', config);
     
     const breakdown = {
       basePrice: 0,
@@ -116,7 +114,6 @@ class SupabasePricingService {
       extraHelperCost: 0,
       subtotal: 0,
       studentDiscount: 0,
-      lateBookingFee: 0,
       total: 0,
       breakdown: {
         baseCharge: {},
@@ -190,18 +187,7 @@ class SupabasePricingService {
       }
     }
 
-    // Apply late booking fee if applicable
-    if (input.daysUntilMove && input.daysUntilMove <= 3) {
-      const lateFeeConfig = config.discountsFees.find(d => 
-        d.type === (input.daysUntilMove <= 1 ? 'urgent_booking_fee' : 'late_booking_fee')
-      );
-      if (lateFeeConfig) {
-        breakdown.lateBookingFee = lateFeeConfig.fixed_amount || 
-          (breakdown.subtotal * lateFeeConfig.percentage);
-      }
-    }
-
-    breakdown.total = breakdown.subtotal - breakdown.studentDiscount + breakdown.lateBookingFee;
+    breakdown.total = breakdown.subtotal - breakdown.studentDiscount;
     
     console.log('[PRICING] Final Breakdown:', {
       basePrice: breakdown.basePrice,
@@ -212,10 +198,8 @@ class SupabasePricingService {
       extraHelperCost: breakdown.extraHelperCost,
       subtotal: breakdown.subtotal,
       studentDiscount: breakdown.studentDiscount,
-      lateBookingFee: breakdown.lateBookingFee,
       total: breakdown.total
     });
-    console.log('========== PRICING CALCULATION END ==========\n');
 
     return breakdown;
   }
@@ -299,10 +283,13 @@ class SupabasePricingService {
 
     let result; // { price, type }
 
-    // ReHome can suggest option - always cheapest
-    if (input.isDateFlexible) {
+    // Use dateOption to determine pricing path (fallback to legacy isDateFlexible)
+    const effectiveDateOption = input.dateOption || (input.isDateFlexible ? 'rehome' : 'fixed');
+
+    if (effectiveDateOption === 'rehome') {
+      // ReHome can suggest option - always cheapest
       result = calculateRehomePrice({ pickupCheap: pickupRates.cityDay });
-    } else if (!input.isDateFlexible && input.selectedDateRange?.start && input.selectedDateRange?.end) {
+    } else if (effectiveDateOption === 'flexible' && input.selectedDateRange?.start && input.selectedDateRange?.end) {
       // Flexible date range
       const startDate = new Date(input.selectedDateRange.start);
       const endDate = new Date(input.selectedDateRange.end);
@@ -319,14 +306,16 @@ class SupabasePricingService {
         const dropoffCityDays = await getCityDaysInRangeCached(
           dropoffCity, input.selectedDateRange.start, input.selectedDateRange.end
         );
-        bothSameDate = pickupAvailable && (dropoffCityDays || []).length > 0;
+        // Check if both cities share at least one SAME scheduled date
+        const pickupDateSet = new Set((cityDays || []).map(d => d.date || d));
+        bothSameDate = (dropoffCityDays || []).some(d => pickupDateSet.has(d.date || d));
       }
 
       result = calculateFlexiblePrice({
         ...rateParams,
         rangeDays,
         pickupAvailableInRange: pickupAvailable,
-        dropoffAvailableInRange: bothSameDate,
+        dropoffAvailableInRange: (isIntercity ? bothSameDate : pickupAvailable),
         bothAvailableSameDate: bothSameDate
       });
     } else {
@@ -557,25 +546,43 @@ class SupabasePricingService {
     let totalCost = 0;
     let totalPoints = 0;
     
-    // Calculate floors (use 1st floor if elevator)
+    // Calculate floors - elevators now use actual floor numbers (no more floor 1 rule)
     const rawPickupFloors = pickupFloors || 0;
     const rawDropoffFloors = dropoffFloors || 0;
 
-    const effectivePickupFloors = hasElevatorPickup ? Math.min(1, rawPickupFloors) : rawPickupFloors;
-    const effectiveDropoffFloors = hasElevatorDropoff ? Math.min(1, rawDropoffFloors) : rawDropoffFloors;
-    const totalFloors = effectivePickupFloors + effectiveDropoffFloors;
+    const totalFloors = rawPickupFloors + rawDropoffFloors;
     
     if (totalFloors === 0) {
       return { floors: 0, itemBreakdown: [], totalCost: 0 };
     }
     
+    // First pass: count total boxes for exponential multiplier logic
+    let totalBoxQuantity = 0;
+    items.forEach(item => {
+      const furnitureItem = config.furnitureItems.find(f => f.id === item.id);
+      if (furnitureItem) {
+        const itemNameLower = furnitureItem.name?.toLowerCase() || '';
+        if (itemNameLower.includes('box')) {
+          totalBoxQuantity += item.quantity;
+        }
+      }
+    });
+    
+    // Get box config for threshold and high count multiplier
+    const boxConfig = carryingConfigByType.get('box');
+    const BOX_COUNT_THRESHOLD = boxConfig?.box_count_threshold ?? 10;
+    const BOX_MULTIPLIER_HIGH = boxConfig?.multiplier_high_count ?? 1.5;
+    const ELEVATOR_MULTIPLIER = boxConfig?.elevator_multiplier ?? 1.1;
+    
     // Calculate cost per item
+    let carryingItemPoints = 0; // Points from items selected for carrying only
     items.forEach(item => {
       const furnitureItem = config.furnitureItems.find(f => f.id === item.id);
       if (!furnitureItem) return;
       
       const points = furnitureItem.points * item.quantity;
       totalPoints += points;
+      carryingItemPoints += points; // Track carrying items separately
       
       const itemNameLower = furnitureItem.name?.toLowerCase() || '';
 
@@ -584,19 +591,42 @@ class SupabasePricingService {
       
       if (itemNameLower.includes('box')) {
         itemType = 'box';
-        multiplier = 0.5; // Boxes use 0.5 multiplier per your requirements
+        // Box carrying exponential logic (from DB config):
+        // ≤ threshold: use standard multiplier
+        // > threshold: use high count multiplier (accounts for tiring factor)
+        // With elevator: use elevator multiplier (regardless of box count)
+        if (hasElevatorPickup && hasElevatorDropoff) {
+          multiplier = ELEVATOR_MULTIPLIER;
+        } else if (totalBoxQuantity > BOX_COUNT_THRESHOLD) {
+          multiplier = BOX_MULTIPLIER_HIGH;
+        } else {
+          const itemConfig = carryingConfigByType.get('box');
+          multiplier = itemConfig?.multiplier_per_floor ?? 1.35;
+        }
       } else if (itemNameLower.includes('bag')) {
         itemType = 'bag';
-        multiplier = 0.5; // Bags also use reduced multiplier
+        const itemConfig = carryingConfigByType.get('bag');
+        multiplier = itemConfig?.multiplier_per_floor ?? 1.35;
+        // Apply elevator multiplier if both locations have elevators
+        if (hasElevatorPickup && hasElevatorDropoff) {
+          multiplier = itemConfig?.elevator_multiplier ?? ELEVATOR_MULTIPLIER;
+        }
       } else if (itemNameLower.includes('luggage')) {
         itemType = 'luggage';
-        multiplier = 0.5; // Luggage uses reduced multiplier
-      }
-      
-      // Check if there's a specific config that overrides
-      const itemConfig = carryingConfigByType.get(itemType);
-      if (itemConfig && itemConfig.multiplier_per_floor != null) {
-        multiplier = itemConfig.multiplier_per_floor;
+        const itemConfig = carryingConfigByType.get('luggage');
+        multiplier = itemConfig?.multiplier_per_floor ?? 1.35;
+        // Apply elevator multiplier if both locations have elevators
+        if (hasElevatorPickup && hasElevatorDropoff) {
+          multiplier = itemConfig?.elevator_multiplier ?? ELEVATOR_MULTIPLIER;
+        }
+      } else {
+        // Standard items - use config
+        const itemConfig = carryingConfigByType.get('standard');
+        multiplier = itemConfig?.multiplier_per_floor ?? 1.35;
+        // Apply elevator multiplier if both locations have elevators
+        if (hasElevatorPickup && hasElevatorDropoff) {
+          multiplier = itemConfig?.elevator_multiplier ?? ELEVATOR_MULTIPLIER;
+        }
       }
       
       const cost = points * multiplier * totalFloors;
@@ -608,13 +638,16 @@ class SupabasePricingService {
         points,
         floors: totalFloors,
         multiplier,
-        cost
+        cost,
+        ...(itemType === 'box' && { totalBoxes: totalBoxQuantity, threshold: BOX_COUNT_THRESHOLD })
       });
     });
     
+    // Base fee applies based on carrying item points only (not all items)
+    // If customer has many items but only needs help carrying one small item, base fee applies
     const shouldApplyBaseFee =
       totalCost > 0 &&
-      (BASE_FEE_THRESHOLD === null || BASE_FEE_THRESHOLD === undefined || totalPoints < BASE_FEE_THRESHOLD);
+      (BASE_FEE_THRESHOLD === null || BASE_FEE_THRESHOLD === undefined || carryingItemPoints < BASE_FEE_THRESHOLD);
 
     if (shouldApplyBaseFee) {
       totalCost += BASE_FEE;
@@ -623,7 +656,9 @@ class SupabasePricingService {
     return {
       floors: totalFloors,
       itemBreakdown,
-      totalCost
+      totalCost,
+      carryingItemPoints, // Include for debugging
+      baseFeeApplied: shouldApplyBaseFee
     };
   }
 

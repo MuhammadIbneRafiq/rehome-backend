@@ -268,9 +268,10 @@ import adminPricingConfigsRoutes from './api/admin/pricing-configs.js';
 import adminPricingMultipliersRoutes from './api/admin/pricing-multipliers.js';
 import rehomeOrdersRoutes from './api/rehome-orders.js';
 import transportRoutes from './api/transport.js';
-import pricingRoutes from './api/pricing.js';
 import marketplaceRoutes from './api/marketplace.js';
 import calendarPricingRoutes from './api/calendar-pricing.js';
+import cityScheduleStatusRoutes from './api/city-schedule-status.js';
+import checkAllCitiesEmptyRoutes from './api/check-all-cities-empty.js';
 
 // --------------------  Application Routes --------------------
 
@@ -286,10 +287,11 @@ app.use('/api/admin/city-prices', adminCityPricesRoutes);
 app.use('/api/admin/pricing-configs', adminPricingConfigsRoutes);
 app.use('/api/admin/pricing-multipliers', adminPricingMultipliersRoutes);
 app.use('/api/rehome-orders', rehomeOrdersRoutes);
-app.use('/api/pricing', pricingRoutes);
 app.use('/api/transport', transportRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/calendar-pricing', calendarPricingRoutes);
+app.use('/api/city-schedule-status', cityScheduleStatusRoutes);
+app.use('/api/check-all-cities-empty', checkAllCitiesEmptyRoutes);
 
 // --------------------  Authentication Routes --------------------
 // Auth
@@ -3042,18 +3044,8 @@ function calculatePricingBreakdown(params) {
     const studentDiscountAmount = (isStudent && hasStudentId) ? 
         subtotal * config.studentDiscount : 0;
 
-    // Late booking fee (€50 for 1-3 days, €75 for same/next day)
-    let lateBookingFee = 0;
-    if (daysUntilMove !== undefined && daysUntilMove <= 3) {
-        if (daysUntilMove <= 1) {
-            lateBookingFee = 75; // Urgent booking fee
-        } else {
-            lateBookingFee = 50; // Late booking fee
-        }
-    }
-
     // Apply discounts and fees
-    subtotal = subtotal - studentDiscountAmount + lateBookingFee;
+    subtotal = subtotal - studentDiscountAmount;
 
     // Ensure minimum charge
     const total = Math.max(subtotal, config.minimumCharge);
@@ -3070,7 +3062,6 @@ function calculatePricingBreakdown(params) {
             assemblyCharges: parseFloat(assemblyCharges.toFixed(2)),
             extraHelperCharges: parseFloat(extraHelperCharges.toFixed(2)),
             studentDiscountAmount: parseFloat(studentDiscountAmount.toFixed(2)),
-            lateBookingFee: parseFloat(lateBookingFee.toFixed(2)),
             subtotal: parseFloat(subtotal.toFixed(2)),
             total: parseFloat(total.toFixed(2))
         },
@@ -3083,197 +3074,6 @@ function calculatePricingBreakdown(params) {
         }
     };
 }
-
-// ==================== DISTANCE CALCULATION HELPER FUNCTION ====================
-
-// Helper function to calculate distance between two locations
-const calculateDistanceBetweenLocations = async (origin, destination) => {
-    try {
-        if (!origin || !destination) {
-            return {
-                success: false,
-                error: 'Origin and destination are required'
-            };
-        }
-
-        console.log('🛣️ Calculating road distance from:', origin, 'to:', destination);
-
-        // Parse coordinates from origin and destination
-        const [originLat, originLng] = origin.split(',').map(parseFloat);
-        const [destLat, destLng] = destination.split(',').map(parseFloat);
-
-        // First, try Google Routes API
-        const apiKey = process.env.GOOGLE_MAPS_API || process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API;
-        
-        if (apiKey) {
-            try {
-                console.log('🔵 Trying Google Routes API...');
-                
-                const requestBody = {
-                    origin: {
-                        location: {
-                            latLng: {
-                                latitude: originLat,
-                                longitude: originLng
-                            }
-                        }
-                    },
-                    destination: {
-                        location: {
-                            latLng: {
-                                latitude: destLat,
-                                longitude: destLng
-                            }
-                        }
-                    },
-                    travelMode: 'DRIVE',
-                    routingPreference: 'TRAFFIC_UNAWARE',
-                    computeAlternativeRoutes: false,
-                    routeModifiers: {
-                        avoidTolls: true,
-                        avoidHighways: false,
-                        avoidFerries: false
-                    },
-                    languageCode: 'en-US',
-                    units: 'METRIC'
-                };
-
-                const response = await axios.post(
-                    'https://routes.googleapis.com/directions/v2:computeRoutes',
-                    requestBody,
-                    {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Goog-Api-Key': apiKey,
-                            'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline'
-                        },
-                        timeout: 10000 // 10 second timeout
-                    }
-                );
-
-                if (response.data.routes && response.data.routes.length > 0) {
-                    const route = response.data.routes[0];
-                    const distanceMeters = route.distanceMeters;
-                    const distanceKm = distanceMeters / 1000;
-                    const durationSeconds = parseInt(route.duration.replace('s', ''));
-
-                    console.log('✅ Google Routes API success:', distanceKm.toFixed(2), 'km');
-
-                    // Format duration for display
-                    const hours = Math.floor(durationSeconds / 3600);
-                    const minutes = Math.floor((durationSeconds % 3600) / 60);
-                    let durationText = '';
-                    if (hours > 0) {
-                        durationText = `${hours} hour${hours > 1 ? 's' : ''} ${minutes} min${minutes !== 1 ? 's' : ''}`;
-                    } else {
-                        durationText = `${minutes} min${minutes !== 1 ? 's' : ''}`;
-                    }
-
-                    return {
-                        success: true,
-                        distance: distanceMeters,
-                        distanceKm: Math.round(distanceKm * 100) / 100,
-                        duration: durationSeconds,
-                        durationText: durationText,
-                        distanceText: `${distanceKm.toFixed(1)} km`,
-                        origin: origin,
-                        destination: destination,
-                        provider: 'Google Routes API'
-                    };
-                }
-            } catch (googleError) {
-                console.log('⚠️ Google Routes API failed:', googleError.message);
-                console.log('🔄 Falling back to OpenRouteService...');
-            }
-        } else {
-            console.log('⚠️ No Google Maps API key found, using OpenRouteService...');
-        }
-
-        // Fallback to OpenRouteService
-        try {
-            console.log('🟡 Trying OpenRouteService...');
-            
-            // OpenRouteService expects coordinates as lng,lat (opposite of lat,lng)
-            const openRouteUrl = `https://api.openrouteservice.org/v2/directions/driving-car`;
-            const params = {
-                start: `${originLng},${originLat}`,
-                end: `${destLng},${destLat}`
-            };
-
-            const response = await axios.get(openRouteUrl, {
-                params: params,
-                timeout: 10000,
-                headers: {
-                    'Accept': 'application/json'
-                }
-            });
-
-            if (response.data.features && response.data.features.length > 0) {
-                const route = response.data.features[0];
-                const distanceMeters = route.properties.segments[0].distance;
-                const durationSeconds = route.properties.segments[0].duration;
-                const distanceKm = distanceMeters / 1000;
-
-                console.log('✅ OpenRouteService success:', distanceKm.toFixed(2), 'km');
-
-                // Format duration for display
-                const hours = Math.floor(durationSeconds / 3600);
-                const minutes = Math.floor((durationSeconds % 3600) / 60);
-                let durationText = '';
-                if (hours > 0) {
-                    durationText = `${hours} hour${hours > 1 ? 's' : ''} ${minutes} min${minutes !== 1 ? 's' : ''}`;
-                } else {
-                    durationText = `${minutes} min${minutes !== 1 ? 's' : ''}`;
-                }
-
-                return {
-                    success: true,
-                    distance: distanceMeters,
-                    distanceKm: Math.round(distanceKm * 100) / 100,
-                    duration: durationSeconds,
-                    durationText: durationText,
-                    distanceText: `${distanceKm.toFixed(1)} km`,
-                    origin: origin,
-                    destination: destination,
-                    provider: 'OpenRouteService'
-                };
-            } else {
-                throw new Error('No routes found in OpenRouteService response');
-            }
-
-        } catch (openRouteError) {
-            console.error('❌ OpenRouteService also failed:', openRouteError.message);
-            
-            // If both services fail, return error
-            return {
-                success: false,
-                error: 'All distance calculation services failed',
-                details: process.env.NODE_ENV === 'development' ? {
-                    googleError: apiKey ? 'Google Routes API failed' : 'No Google API key',
-                    openRouteError: openRouteError.message
-                } : undefined
-            };
-        }
-
-    } catch (error) {
-        console.error('❌ Unexpected error calculating distance:', error.message);
-        
-        if (error.code === 'ECONNABORTED') {
-            return {
-                success: false,
-                error: 'Request timeout - Distance calculation service took too long to respond'
-            };
-        }
-
-        return {
-            success: false,
-            error: 'Failed to calculate distance',
-            details: process.env.NODE_ENV === 'development' ? {
-                message: error.message
-            } : undefined
-        };
-    }
-};
 
 // ==================== DISTANCE CALCULATION ENDPOINT ====================
 

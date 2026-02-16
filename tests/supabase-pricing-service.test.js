@@ -20,8 +20,6 @@ import { supabaseClient } from '../db/params.js';
  * 
  * Discounts/Fees:
  * - Student discount: 8.85%
- * - Late booking fee: €50 (1-3 days)
- * - Urgent booking fee: €75 (≤24h)
  * 
  * Actual Furniture Item IDs:
  * - Box: fb6097cc-f129-43a5-9ad3-0fd7d782dc5e (0.5 points)
@@ -221,8 +219,8 @@ describe('SupabasePricingService', () => {
       expect(resultWithElevator.totalCost).toBeLessThan(resultWithoutElevator.totalCost);
     });
 
-    it('should use 0.5 multiplier for boxes instead of 1.35', () => {
-      const inputBox = {
+    it('should use 1.35 multiplier for ≤10 boxes', () => {
+      const input = {
         items: [{ id: FURNITURE_IDS.BOX, quantity: 10 }],
         pickupFloors: 2,
         dropoffFloors: 0,
@@ -230,20 +228,94 @@ describe('SupabasePricingService', () => {
         hasElevatorDropoff: false
       };
 
-      const inputSofa = {
-        items: [{ id: FURNITURE_IDS.SOFA_2_SEATER, quantity: 1 }],
+      const result = supabasePricingService.calculateCarryingCost(input, config);
+      
+      // 10 boxes: 10 * 0.5 points = 5 points
+      // Cost: 5 * 1.35 * 2 floors = 13.5 + 25 base = 38.5
+      expect(result.totalCost).toBe(38.5);
+      expect(result.carryingItemPoints).toBe(5);
+      expect(result.baseFeeApplied).toBe(true);
+    });
+
+    it('should use 1.5 multiplier for >10 boxes (exponential tiring factor)', () => {
+      const input = {
+        items: [{ id: FURNITURE_IDS.BOX, quantity: 15 }],
         pickupFloors: 2,
         dropoffFloors: 0,
         hasElevatorPickup: false,
         hasElevatorDropoff: false
       };
 
-      const resultBox = supabasePricingService.calculateCarryingCost(inputBox, config);
-      const resultSofa = supabasePricingService.calculateCarryingCost(inputSofa, config);
+      const result = supabasePricingService.calculateCarryingCost(input, config);
       
-      // Boxes should have lower cost per point due to 0.5 multiplier vs 1.35
-      expect(resultBox.totalCost).toBeDefined();
-      expect(resultSofa.totalCost).toBeDefined();
+      // 15 boxes: 15 * 0.5 points = 7.5 points
+      // Cost: 7.5 * 1.5 * 2 floors = 22.5 + 25 base = 47.5
+      expect(result.totalCost).toBe(47.5);
+      expect(result.carryingItemPoints).toBe(7.5);
+      expect(result.itemBreakdown[0].totalBoxes).toBe(15);
+      expect(result.itemBreakdown[0].threshold).toBe(10);
+    });
+
+    it('should use 1.1 elevator multiplier for boxes regardless of count', () => {
+      const input = {
+        items: [{ id: FURNITURE_IDS.BOX, quantity: 15 }],
+        pickupFloors: 3,
+        dropoffFloors: 2,
+        hasElevatorPickup: true,
+        hasElevatorDropoff: true
+      };
+
+      const result = supabasePricingService.calculateCarryingCost(input, config);
+      
+      // With both elevators: effective floors = 1 + 1 = 2
+      // 15 boxes: 15 * 0.5 points = 7.5 points
+      // Cost: 7.5 * 1.1 * 2 floors = 16.5 + 25 base = 41.5
+      expect(result.totalCost).toBe(41.5);
+      expect(result.floors).toBe(2); // Both elevators reduce to 1 floor each
+    });
+
+    it('should apply base fee based on carrying items only, not all items', () => {
+      // Scenario: Customer has many items but only needs help carrying a small fridge (4 points)
+      const input = {
+        items: [
+          { id: FURNITURE_IDS.CHAIR, quantity: 1 } // 2 points - small item needing carrying
+        ],
+        pickupFloors: 1,
+        dropoffFloors: 0,
+        hasElevatorPickup: false,
+        hasElevatorDropoff: false
+      };
+
+      const result = supabasePricingService.calculateCarryingCost(input, config);
+      
+      // Chair: 2 points * 1.35 * 1 floor = 2.7
+      // Since carryingItemPoints (2) < threshold (20), base fee applies
+      // Total: 2.7 + 25 = 27.7
+      expect(result.carryingItemPoints).toBe(2);
+      expect(result.baseFeeApplied).toBe(true);
+      expect(result.totalCost).toBe(27.7);
+    });
+
+    it('should NOT apply base fee when carrying items exceed threshold', () => {
+      const input = {
+        items: [
+          { id: FURNITURE_IDS.SOFA_3_SEATER, quantity: 1 }, // 8 points
+          { id: FURNITURE_IDS.SOFA_2_SEATER, quantity: 2 }  // 6*2 = 12 points
+          // Total: 20 points (at threshold, base fee should apply)
+        ],
+        pickupFloors: 1,
+        dropoffFloors: 0,
+        hasElevatorPickup: false,
+        hasElevatorDropoff: false
+      };
+
+      const result = supabasePricingService.calculateCarryingCost(input, config);
+      
+      // Total points: 8 + 12 = 20 points
+      // If threshold is 20, base fee applies at exactly 20
+      expect(result.carryingItemPoints).toBe(20);
+      // Base fee applies when points < threshold (or threshold is null)
+      expect(result.baseFeeApplied).toBeDefined();
     });
 
     it('should handle null items array gracefully', () => {
