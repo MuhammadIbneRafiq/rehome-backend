@@ -594,8 +594,8 @@ class SupabasePricingService {
         // Box carrying exponential logic (from DB config):
         // ≤ threshold: use standard multiplier
         // > threshold: use high count multiplier (accounts for tiring factor)
-        // With elevator: use elevator multiplier (regardless of box count)
-        if (hasElevatorPickup && hasElevatorDropoff) {
+        // With elevator: use elevator multiplier (regardless of box count) atleast 1 has to have elevator
+        if (hasElevatorPickup || hasElevatorDropoff) {
           multiplier = ELEVATOR_MULTIPLIER;
         } else if (totalBoxQuantity > BOX_COUNT_THRESHOLD) {
           multiplier = BOX_MULTIPLIER_HIGH;
