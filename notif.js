@@ -333,7 +333,7 @@ export const sendMovingRequestEmail = async (movingData) => {
             <p style="margin: 10px 0; color: #333;"><strong>Important:</strong> If you need to provide additional information or revisions to your request details, please reply to this email or contact us via WhatsApp with your order number (#${order_number}).</p>
           </div>
           
-          <p>In the meantime, if you have any questions or need to provide additional information, please don't hesitate to contact us:</p>
+          <p>In the meantime, if you have any questions, please don't hesitate to contact us:</p>
           <ul style="list-style-type: none; padding-left: 0;">
             <li><strong>WhatsApp:</strong> <a href="https://wa.me/31612265704" style="color: #ff6b35;">+31 612 265 704</a></li>
             <li><strong>Email:</strong> <a href="mailto:info@rehomebv.com" style="color: #ff6b35;">info@rehomebv.com</a></li>
