@@ -322,12 +322,12 @@ router.post('/create', upload.fields([
       
       const orderSummary = {
         pickupDetails: {
-          address: parsedPickupLocation?.displayName || parsedPickupLocation?.text || 'Unknown',
+          address: parsedPickupLocation?.text || parsedPickupLocation?.displayName || parsedPickupLocation?.formattedAddress || 'Unknown',
           floor: parseInt(pickupFloors) || 0,
           elevator: hasElevatorPickup === 'true'
         },
         deliveryDetails: {
-          address: parsedDropoffLocation?.displayName || parsedDropoffLocation?.text || 'Unknown',
+          address: parsedDropoffLocation?.text || parsedDropoffLocation?.displayName || parsedDropoffLocation?.formattedAddress || 'Unknown',
           floor: parseInt(dropoffFloors) || 0,
           elevator: hasElevatorDropoff === 'true'
         },
