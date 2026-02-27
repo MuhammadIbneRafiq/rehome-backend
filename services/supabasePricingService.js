@@ -285,9 +285,14 @@ class SupabasePricingService {
 
     // Use dateOption to determine pricing path (fallback to legacy isDateFlexible)
     const effectiveDateOption = input.dateOption || (input.isDateFlexible ? 'rehome' : 'fixed');
+    
+    console.log('[BASE PRICE] Date option:', input.dateOption, '| Effective:', effectiveDateOption);
+    console.log('[BASE PRICE] Pickup rates:', pickupRates);
+    console.log('[BASE PRICE] Dropoff rates:', dropoffRates);
 
     if (effectiveDateOption === 'rehome') {
       // ReHome can suggest option - always cheapest
+      console.log('[BASE PRICE] Using ReHome pricing - cheapest rate');
       result = calculateRehomePrice({ pickupCheap: pickupRates.cityDay });
     } else if (effectiveDateOption === 'flexible' && input.selectedDateRange?.start && input.selectedDateRange?.end) {
       // Flexible date range
@@ -446,12 +451,101 @@ class SupabasePricingService {
 
   /**
    * Calculate distance cost
+   * - Always calculates actual distance via Google Maps API
+   * - Within city: FREE if <10km OR no exact addresses entered
+   * - Within city: Charged if >=10km with exact addresses
+   * - Between cities: Always charged based on distance rates
    */
   async calculateDistanceCost(input, config) {
     const { pickupLocation, dropoffLocation } = input;
     
-    // Calculate distance using Google Maps API
+    // Extract city names from both locations
+    const pickupCity = findClosestCityShared(pickupLocation, config.cityCharges);
+    const dropoffCity = findClosestCityShared(dropoffLocation, config.cityCharges);
+    
+    const pickupCityName = pickupCity?.city_name || 'Unknown';
+    const dropoffCityName = dropoffCity?.city_name || 'Unknown';
+    
+    console.log('[DISTANCE] Pickup City:', pickupCityName, '| Dropoff City:', dropoffCityName);
+    console.log('[DISTANCE] Pickup location:', JSON.stringify(pickupLocation, null, 2));
+    console.log('[DISTANCE] Dropoff location:', JSON.stringify(dropoffLocation, null, 2));
+    
+    // Check if within the same city
+    const isWithinCity = pickupCityName === dropoffCityName;
+    console.log('[DISTANCE] Is within city:', isWithinCity);
+    
+    // Check if exact addresses are provided (has coordinates)
+    const hasExactAddresses = Boolean(
+      (pickupLocation?.coordinates?.lat && pickupLocation?.coordinates?.lng &&
+       dropoffLocation?.coordinates?.lat && dropoffLocation?.coordinates?.lng) ||
+      (pickupLocation?.lat && pickupLocation?.lng &&
+       dropoffLocation?.lat && dropoffLocation?.lng)
+    );
+    console.log('[DISTANCE] Has exact addresses:', hasExactAddresses);
+    
+    // Check if same location (same placeId or same coordinates)
+    const isSameLocation = (
+      (pickupLocation?.placeId && dropoffLocation?.placeId && 
+       pickupLocation.placeId === dropoffLocation.placeId) ||
+      (pickupLocation?.coordinates?.lat && pickupLocation?.coordinates?.lng &&
+       dropoffLocation?.coordinates?.lat && dropoffLocation?.coordinates?.lng &&
+       Math.abs(pickupLocation.coordinates.lat - dropoffLocation.coordinates.lat) < 0.00001 &&
+       Math.abs(pickupLocation.coordinates.lng - dropoffLocation.coordinates.lng) < 0.00001) ||
+      (pickupLocation?.lat && pickupLocation?.lng &&
+       dropoffLocation?.lat && dropoffLocation?.lng &&
+       Math.abs(pickupLocation.lat - dropoffLocation.lat) < 0.00001 &&
+       Math.abs(pickupLocation.lng - dropoffLocation.lng) < 0.00001)
+    );
+    
+    console.log('[DISTANCE] Same location check:');
+    console.log('  - pickup placeId:', pickupLocation?.placeId);
+    console.log('  - dropoff placeId:', dropoffLocation?.placeId);
+    console.log('  - pickup coords:', pickupLocation?.coordinates?.lat, pickupLocation?.coordinates?.lng);
+    console.log('  - dropoff coords:', dropoffLocation?.coordinates?.lat, dropoffLocation?.coordinates?.lng);
+    console.log('  - isSameLocation:', isSameLocation);
+    
+    // If same location → FREE
+    if (isSameLocation) {
+      console.log('[DISTANCE] Same location (identical pickup/dropoff) - FREE distance cost');
+      return {
+        distanceKm: 0,
+        category: 'same_location',
+        rate: 0,
+        cost: 0,
+        freeThreshold: true,
+        isWithinCity: true
+      };
+    }
+    
+    // If within city and no exact addresses → FREE
+    if (isWithinCity && !hasExactAddresses) {
+      console.log('[DISTANCE] Within city, no exact addresses - FREE distance cost');
+      return {
+        distanceKm: 0,
+        category: 'within_city_free',
+        rate: 0,
+        cost: 0,
+        freeThreshold: true,
+        isWithinCity: true
+      };
+    }
+    
+    // Calculate actual distance using Google Maps API (for both within city and between cities)
+    console.log('[DISTANCE] Calculating actual distance via Google Maps API');
     const distance = await this.calculateDistance(pickupLocation, dropoffLocation);
+    
+    // Within city with exact addresses: FREE if <10km
+    if (isWithinCity && distance < 10) {
+      console.log('[DISTANCE] Within city, <10km - FREE distance cost');
+      return {
+        distanceKm: distance,
+        category: 'within_city_free',
+        rate: 0,
+        cost: 0,
+        freeThreshold: true,
+        isWithinCity: true
+      };
+    }
     
     // Determine distance category and rate
     let category = 'long';
@@ -472,11 +566,17 @@ class SupabasePricingService {
       rate = longConfig?.rate_per_km || 0.5;
     }
 
+    const distanceCost = distance * rate;
+    
+    console.log('[DISTANCE] Calculated:', distance, 'km | Category:', category, '| Rate:', rate, '€/km | Cost:', distanceCost, '€');
+
     return {
       distanceKm: distance,
       category,
       rate,
-      cost: distance * rate
+      cost: distanceCost,
+      freeThreshold: false,
+      isWithinCity
     };
   }
 

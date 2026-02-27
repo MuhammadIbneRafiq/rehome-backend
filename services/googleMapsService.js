@@ -476,7 +476,7 @@ export async function calculateDistanceFromLocations(pickup, dropoff) {
 
     const result = await calculateDistance(originCoords, destCoords);
     
-    if (result.success && result.distanceKm) {
+    if (result.success && result.distanceKm !== undefined && result.distanceKm !== null) {
       console.log(`📍 Calculated distance: ${result.distanceKm}km using ${result.provider}`);
       return result.distanceKm;
     }

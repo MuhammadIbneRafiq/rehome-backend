@@ -1845,24 +1845,26 @@ app.post('/api/special-requests', (req, res, next) => {
       console.log(`📸 Successfully uploaded ${photoUrls.length}/${req.files.length} photos`);
     }
 
-    // Add photo URLs to insert data
-    if (photoUrls.length > 0) {
-      insertData.photo_urls = photoUrls;
-    }
+    // Debug logging for date fields
+    console.log('🔍 Backend received fields:', {
+      service: selectedService,
+      storageStartDate: fields.storageStartDate,
+      storageEndDate: fields.storageEndDate,
+      earliestRemovalDate: fields.earliestRemovalDate,
+      latestRemovalDate: fields.latestRemovalDate,
+      removalDate: fields.removalDate
+    });
 
-    console.log('💾 Inserting special request into database...');
-    
-    // Map insertData to special_requests table structure
     const specialRequestData = {
-      request_type: selectedService === 'fullInternationalMove' ? 'international_move' : 
-                    selectedService === 'junkRemoval' ? 'junk_removal' : 
-                    selectedService === 'storage' ? 'item_storage' : selectedService,
-      customer_name: customerName,
-      email: email,
-      phone: phone,
-      pickup_country: fields.pickupCountry || 'The Netherlands',
-      pickup_postal: fields.pickupPostal || '',
-      pickup_house_number: fields.pickupHouseNumber || '',
+      customer_name: fields.customerName || 'Customer',
+      email: fields.email || '',
+      phone: fields.phone || '',
+      request_type: selectedService === 'storage' ? 'item_storage' : 
+                   selectedService === 'junkRemoval' ? 'junk_removal' : 
+                   selectedService === 'fullInternationalMove' ? 'international_move' : 'other',
+      pickup_country: fields.pickupCountry || fields.country || '',
+      pickup_postal: fields.pickupPostal || fields.postal || '',
+      pickup_house_number: fields.pickupHouseNumber || fields.houseNumber || '',
       pickup_addition: fields.pickupAddition || '',
       pickup_city: fields.pickupCity || '',
       pickup_street: fields.pickupStreet || '',
@@ -1879,16 +1881,48 @@ app.post('/api/special-requests', (req, res, next) => {
       dropoff_elevator: insertData.dropoff_elevator === 'yes' || fields.dropoffElevator === 'yes',
       dropoff_address: insertData.dropoff_location || fields.dropoffAddress || '',
       move_date_type: fields.moveDateType || fields.moveDate || 'specific',
-      specific_date_start: fields.specificDate ? (Array.isArray(fields.specificDate) ? fields.specificDate[0] : fields.specificDate) : null,
-      specific_date_end: fields.specificDate ? (Array.isArray(fields.specificDate) ? fields.specificDate[1] : null) : null,
+      specific_date_start: fields.specificDateStart || fields.specificDate || fields.flexibleStartDate || null,
+      specific_date_end: fields.specificDateEnd || fields.flexibleEndDate || null,
       item_description: fields.itemDescription || fields.message || insertData.message || '',
       selected_services: fields.selectedServices || fields.services || insertData.selected_services || [],
       storage_duration_months: parseInt(fields.storageDuration) || null,
-      delivery_needed: fields.deliveryOption === 'delivery' || false,
+      delivery_needed: fields.deliveryOption === 'delivery' || fields.deliveryPreference === 'deliverToHome' || false,
       junk_volume: fields.junkVolume || null,
       photo_urls: photoUrls.length > 0 ? photoUrls : null,
-      status: 'pending'
+      status: 'pending',
+      // Storage-specific fields
+      pickup_preference: fields.pickupPreference || null,
+      delivery_preference: fields.deliveryPreference || null,
+      delivery_country: fields.deliveryCountry || null,
+      delivery_postal: fields.deliveryPostal || null,
+      delivery_house_number: fields.deliveryHouseNumber || null,
+      delivery_addition: fields.deliveryAddition || null,
+      delivery_city: fields.deliveryCity || null,
+      delivery_street: fields.deliveryStreet || null,
+      delivery_floor: parseInt(fields.deliveryFloor) || 0,
+      delivery_elevator: fields.deliveryElevator === 'yes',
+      delivery_address: fields.deliveryAddress || (fields.deliveryPreference === 'deliverToHome' ? 
+        buildAddressString({
+          country: fields.deliveryCountry,
+          postal: fields.deliveryPostal,
+          houseNumber: fields.deliveryHouseNumber,
+          addition: fields.deliveryAddition,
+          city: fields.deliveryCity,
+          street: fields.deliveryStreet
+        }) : null),
+      storage_start_date: fields.storageStartDate || null,
+      storage_end_date: fields.storageEndDate || null,
+      // Junk removal dates
+      earliest_removal_date: fields.earliestRemovalDate || null,
+      latest_removal_date: fields.latestRemovalDate || fields.removalDate || null
     };
+    
+    // Helper function to build address string
+    function buildAddressString(address) {
+      const streetLine = [address.street, address.houseNumber, address.addition].filter(Boolean).join(' ');
+      const cityLine = [address.postal, address.city].filter(Boolean).join(' ');
+      return [streetLine, cityLine, address.country].filter(Boolean).join(', ');
+    }
 
     const { data, error } = await supabase
       .from('special_requests')
