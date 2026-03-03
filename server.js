@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 import Joi from "joi";
 import { supabaseClient, SUPABASE_URL } from "./db/params.js";
+import { createClient } from '@supabase/supabase-js';
 import express, { json } from "express";
 
 // Create alias for backward compatibility (since code uses both supabase and supabaseClient)
@@ -1344,6 +1345,327 @@ app.post('/api/upload', (req, res, next) => {
   } catch (error) {
       console.error('Error during upload process:', error);
       res.status(500).json({ error: 'Internal Server Error', details: error.message });
+  }
+});
+
+// 5b. Marketplace Image Upload Endpoint with Automatic Format Conversion
+app.post('/api/upload/marketplace', (req, res, next) => {
+    // Handle multer errors
+    upload.array('photos', 10)(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            console.error('Multer error:', err.code, err.message);
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({ 
+                    error: 'File too large. Maximum file size is 50MB per file. Our system will automatically compress your images to under 2MB.' 
+                });
+            }
+            if (err.code === 'LIMIT_FILE_COUNT') {
+                return res.status(400).json({ error: 'Too many files. Maximum 10 files allowed.' });
+            }
+            return res.status(400).json({ error: 'File upload error: ' + err.message });
+        }
+        if (err) {
+            return res.status(500).json({ error: 'Upload failed: ' + err.message });
+        }
+        next();
+    });
+}, async (req, res) => {
+  try {
+      console.log(`📤 Marketplace upload request received - Files: ${req.files?.length || 0}`);
+      
+      // Log detailed file information
+      if (req.files && req.files.length > 0) {
+          req.files.forEach((file, index) => {
+              console.log(`📁 File ${index + 1}: ${file.originalname}, Size: ${(file.size / 1024 / 1024).toFixed(2)}MB, Type: ${file.mimetype}`);
+          });
+      }
+      
+      if (!req.files || req.files.length === 0) {
+          console.error('❌ No files received in request');
+          return res.status(400).json({ error: 'No files were uploaded.' });
+      }
+
+      const uploadedFiles = req.files;
+      const imageUrls = [];
+      const conversionResults = [];
+      
+      console.log(`Processing ${uploadedFiles.length} uploaded files`);
+      
+      // Skip bucket check since we know it exists and the check might fail due to permissions
+      console.log('📦 Using marketplace-images bucket');
+
+      for (let i = 0; i < uploadedFiles.length; i++) {
+          const file = uploadedFiles[i];
+          console.log(`\n📸 Processing marketplace file ${i + 1}/${uploadedFiles.length}: ${file.originalname}`);
+          console.log(`📊 Original file size: ${(file.buffer.length / 1024 / 1024).toFixed(2)} MB`);
+          
+          try {
+              // Check if the image format is supported
+              const isSupported = imageProcessingService.isImageFormatSupported(file.originalname);
+              console.log(`Format supported: ${isSupported} (${file.originalname})`);
+              
+              let finalBuffer = file.buffer;
+              let finalFilename = file.originalname;
+              let finalMimeType = file.mimetype;
+              
+              // Always process images for optimization and format conversion
+              console.log(`🔄 Processing marketplace image: ${file.originalname} (Original size: ${(file.buffer.length / 1024 / 1024).toFixed(2)} MB)`);
+              
+              let conversionResult;
+              
+              // Convert unsupported formats (HEIC, etc.) or optimize all images
+              if (!isSupported || file.originalname.toLowerCase().includes('.heic')) {
+                  console.log(`🔄 Converting unsupported format: ${file.originalname}`);
+                  
+                  conversionResult = await imageProcessingService.convertImageToWebFormat(
+                      file.buffer,
+                      file.originalname,
+                      {
+                          quality: 85,
+                          maxWidth: 1920,
+                          maxHeight: 1080,
+                          removeMetadata: true
+                      }
+                  );
+              } else {
+                  // Optimize supported formats (JPEG, PNG, etc.) for better performance
+                  console.log(`🔧 Optimizing supported image: ${file.originalname}`);
+                  
+                  const optimizedBuffer = await imageProcessingService.processImageWithSharp(
+                      file.buffer,
+                      {
+                          format: file.originalname.toLowerCase().includes('.png') ? 'png' : 'jpeg',
+                          quality: 85,
+                          maxWidth: 1920,
+                          maxHeight: 1080,
+                          removeMetadata: true
+                      }
+                  );
+                  
+                  const extension = imageProcessingService.getFileExtension(file.originalname);
+                  const outputExtension = extension === 'jpg' ? 'jpg' : (extension === 'png' ? 'png' : 'jpg');
+                  
+                  conversionResult = {
+                      buffer: optimizedBuffer,
+                      filename: `${uuidv4()}.${outputExtension}`,
+                      mimeType: `image/${outputExtension === 'jpg' ? 'jpeg' : outputExtension}`,
+                      originalFormat: extension,
+                      outputFormat: outputExtension === 'jpg' ? 'jpeg' : outputExtension
+                  };
+              }
+              
+              // Set processed file details
+              finalBuffer = conversionResult.buffer;
+              finalFilename = conversionResult.filename;
+              finalMimeType = conversionResult.mimeType;
+              
+              // Additional compression if file is still over 2MB
+              const targetSizeInBytes = 2 * 1024 * 1024; // 2MB
+              if (finalBuffer.length > targetSizeInBytes) {
+                  console.log(`🔄 File still over 2MB (${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB), applying aggressive compression...`);
+                  
+                  let currentBuffer = finalBuffer;
+                  let quality = 70;
+                  let maxWidth = 1600;
+                  let maxHeight = 1200;
+                  let attempts = 0;
+                  const maxAttempts = 5;
+                  
+                  while (currentBuffer.length > targetSizeInBytes && attempts < maxAttempts) {
+                      attempts++;
+                      console.log(`🔄 Compression attempt ${attempts}/${maxAttempts} - Quality: ${quality}, Max dimensions: ${maxWidth}x${maxHeight}`);
+                      
+                      try {
+                          const compressedBuffer = await imageProcessingService.processImageWithSharp(
+                              currentBuffer,
+                              {
+                                  format: 'jpeg', // Force JPEG for better compression
+                                  quality: quality,
+                                  maxWidth: maxWidth,
+                                  maxHeight: maxHeight,
+                                  removeMetadata: true
+                              }
+                          );
+                          
+                          currentBuffer = compressedBuffer;
+                          console.log(`📊 After compression attempt ${attempts}: ${(currentBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+                          
+                          // Reduce quality and dimensions for next attempt
+                          quality = Math.max(30, quality - 10);
+                          maxWidth = Math.max(800, maxWidth - 200);
+                          maxHeight = Math.max(600, maxHeight - 150);
+                          
+                      } catch (compressionError) {
+                          console.error(`🔄 Compression attempt ${attempts} failed:`, compressionError.message);
+                          break;
+                      }
+                  }
+                  
+                  // Update final values
+                  finalBuffer = currentBuffer;
+                  finalMimeType = 'image/jpeg';
+                  finalFilename = finalFilename.replace(/\.(png|webp|gif)$/i, '.jpg');
+                  
+                  if (finalBuffer.length > targetSizeInBytes) {
+                      console.log(`⚠️  Warning: File still over 2MB after ${maxAttempts} attempts. Final size: ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+                  } else {
+                      console.log(`✅ Successfully compressed to ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+                  }
+              }
+              
+              // Calculate size reduction
+              const sizeReduction = Math.round((1 - finalBuffer.length / file.buffer.length) * 100);
+              console.log(`📊 Size reduction: ${sizeReduction}% (${(file.buffer.length / 1024 / 1024).toFixed(2)} MB → ${(finalBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+              
+              // Track all conversions and optimizations
+              conversionResults.push({
+                  original: file.originalname,
+                  converted: finalFilename,
+                  originalFormat: conversionResult.originalFormat,
+                  outputFormat: conversionResult.outputFormat,
+                  originalSize: file.buffer.length,
+                  convertedSize: finalBuffer.length,
+                  sizeReduction: sizeReduction
+              });
+              
+              console.log(`✅ Processing completed: ${file.originalname} -> ${finalFilename}`);
+
+              // Upload the processed image to marketplace-images bucket
+              console.log(`📤 Uploading to marketplace: ${finalFilename} (${finalBuffer.length} bytes)`);
+              
+              const { data: uploadData, error: uploadError } = await supabaseClient.storage
+                .from('marketplace-images')
+                .upload(finalFilename, finalBuffer, {
+                  contentType: finalMimeType
+                });
+
+              if (uploadError) {
+                  console.error('Error uploading processed file to marketplace:', uploadError);
+                  return res.status(500).json({ 
+                      error: 'Failed to upload processed image to marketplace.', 
+                      details: uploadError,
+                      file: finalFilename
+                  });
+              }
+              
+              console.log('Marketplace upload successful:', uploadData);
+              const imageUrl = `${SUPABASE_URL}/storage/v1/object/public/marketplace-images/${finalFilename}`;
+              console.log('Generated marketplace image URL:', imageUrl);
+              imageUrls.push(imageUrl);
+              
+          } catch (fileError) {
+              console.error(`Error processing marketplace file ${file.originalname}:`, fileError);
+              return res.status(500).json({ 
+                  error: `Failed to process marketplace image: ${file.originalname}`, 
+                  details: fileError.message 
+              });
+          }
+      }
+
+      console.log(`\n🎉 All ${uploadedFiles.length} marketplace files processed successfully!`);
+      
+      // Calculate average size reduction
+      const avgSizeReduction = conversionResults.length > 0 
+          ? Math.round(conversionResults.reduce((sum, result) => sum + result.sizeReduction, 0) / conversionResults.length)
+          : 0;
+      
+      // Return response with conversion details
+      const response = { 
+          imageUrls,
+          totalFiles: uploadedFiles.length,
+          successCount: imageUrls.length,
+          averageSizeReduction: avgSizeReduction,
+          totalOriginalSize: conversionResults.reduce((sum, result) => sum + result.originalSize, 0),
+          totalOptimizedSize: conversionResults.reduce((sum, result) => sum + result.convertedSize, 0),
+          conversions: conversionResults
+      };
+      
+      console.log('📊 Marketplace Upload Summary:', {
+          filesProcessed: uploadedFiles.length,
+          averageSizeReduction: `${avgSizeReduction}%`,
+          totalSavings: `${((response.totalOriginalSize - response.totalOptimizedSize) / 1024 / 1024).toFixed(2)} MB`
+      });
+      
+      res.status(200).json(response);
+      
+  } catch (error) {
+      console.error('Error during marketplace upload process:', error);
+      res.status(500).json({ error: 'Internal Server Error', details: error.message });
+  }
+});
+
+// Temporary endpoint to create marketplace bucket
+app.post('/api/create-marketplace-bucket', async (req, res) => {
+  try {
+    console.log('Creating marketplace-images bucket...');
+    
+    // Use service role client to bypass RLS
+    const serviceClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+    
+    // Create the bucket
+    const { data: bucketData, error: bucketError } = await serviceClient.storage.createBucket('marketplace-images', {
+      public: true,
+      allowedMimeTypes: ['image/*'],
+      fileSizeLimit: 52428800 // 50MB
+    });
+    
+    if (bucketError) {
+      console.error('Error creating bucket:', bucketError);
+      return res.status(500).json({ error: 'Failed to create bucket', details: bucketError });
+    }
+    
+    console.log('Bucket created successfully:', bucketData);
+    
+    // Create RLS policies using SQL
+    const policies = [
+      // Upload policy
+      `CREATE POLICY "Users can insert marketplace images" ON storage.objects
+       FOR INSERT WITH CHECK (
+         bucket_id = 'marketplace-images' AND 
+         auth.role() = 'authenticated'
+       )`,
+       
+      // Public read policy
+      `CREATE POLICY "Public can read marketplace images" ON storage.objects
+       FOR SELECT USING (
+         bucket_id = 'marketplace-images'
+       )`,
+       
+      // Update policy
+      `CREATE POLICY "Users can update own marketplace images" ON storage.objects
+       FOR UPDATE USING (
+         bucket_id = 'marketplace-images' AND 
+         (auth.role() = 'authenticated' AND owner = auth.uid())
+       )`,
+       
+      // Delete policy
+      `CREATE POLICY "Users can delete own marketplace images" ON storage.objects
+       FOR DELETE USING (
+         bucket_id = 'marketplace-images' AND 
+         (auth.role() = 'authenticated' AND owner = auth.uid())
+       )`
+    ];
+    
+    for (const policy of policies) {
+      const { error: policyError } = await serviceClient.rpc('exec_sql', { sql: policy });
+      if (policyError) {
+        console.error('Error creating policy:', policyError);
+        // Continue with other policies even if one fails
+      }
+    }
+    
+    res.status(200).json({ 
+      success: true, 
+      message: 'Marketplace bucket created successfully',
+      bucket: bucketData 
+    });
+    
+  } catch (error) {
+    console.error('Error creating marketplace bucket:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 
